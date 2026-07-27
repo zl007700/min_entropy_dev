@@ -90,14 +90,19 @@ async function runRound(index, current) {
   writeJson(join(dir, "web_search.json"), search);
 
   const repoSnapshot = repoContext();
-  const proposal = await runClaudeAgent({
-    kind: "product",
-    promptFile: join(prompts, "product-manager.md"),
-    workspace: repoWorkspace,
-    artifactDir: dir,
-    context: { round: index, search, repo: repoSnapshot, previous_rounds: current.rounds.slice(-5) },
-    maxTurns: 8,
-  });
+  let proposal;
+  try {
+    proposal = await runClaudeAgent({
+      kind: "product",
+      promptFile: join(prompts, "product-manager.md"),
+      workspace: repoWorkspace,
+      artifactDir: dir,
+      context: { round: index, search, repo: repoSnapshot, previous_rounds: current.rounds.slice(-5) },
+      maxTurns: 12,
+    });
+  } catch (error) {
+    proposal = fallbackProposal(index, error);
+  }
   writeJson(join(dir, "proposal.json"), proposal);
 
   const preGate = await runClaudeAgent({
@@ -228,6 +233,40 @@ async function runRound(index, current) {
     tester,
     completed_at: new Date().toISOString(),
   });
+}
+
+function fallbackProposal(index, error) {
+  const variants = [
+    {
+      title: "Add a small character counter to the composer",
+      problem: "The composer gives no lightweight feedback about prompt length.",
+      user_value: "A counter helps users keep first prompts concise without changing chat behavior.",
+    },
+    {
+      title: "Add clear chat control",
+      problem: "Users cannot reset the current session without reloading the page.",
+      user_value: "A clear control lets users recover a fresh state quickly.",
+    },
+    {
+      title: "Add missing API key setup hint",
+      problem: "When the LLM key is missing, users only see an error after sending.",
+      user_value: "A visible setup hint makes configuration state obvious before the first send.",
+    },
+  ];
+  const chosen = variants[index % variants.length];
+  return {
+    ...chosen,
+    acceptance_criteria: [
+      "The change is visible in the existing chat UI.",
+      "The change touches no LLM provider or request-shape code.",
+      "The app still passes npm run build and npm run lint.",
+    ],
+    non_goals: ["No new dependencies", "No routing changes", "No persistence"],
+    suggested_files: ["src/App.tsx", "src/App.css"],
+    risk_notes: [`Fallback proposal used because PM agent failed: ${String(error.message || error).slice(0, 200)}`],
+    value_hypothesis: "Small visible improvement with low implementation risk.",
+    generated_by_fallback: true,
+  };
 }
 
 function runDeterministicTester(proposal, postGate) {

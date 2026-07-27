@@ -77,6 +77,8 @@ export async function runClaudeAgent({
     if (fallback && existsSync(fallback)) {
       return readJson(fallback);
     }
+    const synthetic = syntheticJson(kind, finalText || stdout);
+    if (synthetic) return synthetic;
     throw error;
   }
 }
@@ -90,6 +92,35 @@ function fallbackJsonPath(kind, artifactDir) {
     dev: "dev.summary.json",
   };
   return names[kind] ? join(artifactDir, names[kind]) : null;
+}
+
+function syntheticJson(kind, text) {
+  if (kind !== "post_gate") return null;
+  const lower = String(text || "").toLowerCase();
+  if (lower.includes("decision: **pass**") || lower.includes("decision: pass")) {
+    return {
+      decision: "pass",
+      verified_value_delta: Number(lower.match(/value_delta\s*=\s*(\d+)/)?.[1] || 1),
+      entropy_delta: Number(lower.match(/entropy_delta\s*=\s*(\d+)/)?.[1] || 1),
+      value_evidence: ["Synthetic fallback parsed an explicit pass verdict from post-gate text."],
+      entropy_evidence: ["Synthetic fallback parsed entropy/value deltas from post-gate text."],
+      blocking_reasons: [],
+      follow_up_issues: [String(text || "").slice(0, 500)],
+      reason: "Post-gate returned natural language instead of JSON; explicit pass verdict was normalized.",
+      normalized_from_text: true,
+    };
+  }
+  return {
+    decision: "revise",
+    verified_value_delta: 0,
+    entropy_delta: 2,
+    value_evidence: [],
+    entropy_evidence: ["Post-gate failed to return parseable JSON."],
+    blocking_reasons: ["Post-gate output was not parseable JSON."],
+    follow_up_issues: [String(text || "").slice(0, 500)],
+    reason: "Post-gate output was not parseable; conservative revise fallback.",
+    normalized_from_text: true,
+  };
 }
 
 function extractFinalText(stdout) {
