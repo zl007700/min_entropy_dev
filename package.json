@@ -1,0 +1,23 @@
+{
+  "name": "min_entropy_dev",
+  "version": "1.0.0",
+  "description": "Low-entropy development loop orchestrator.",
+  "main": "src/loop.mjs",
+  "scripts": {
+    "loop": "node src/loop.mjs",
+    "smoke": "node src/loop.mjs --smoke --rounds 1",
+    "test": "node --check src/loop.mjs && node --check src/claude.mjs && node --check src/config.mjs && node --check src/github.mjs && node --check src/io.mjs && node --check src/serper.mjs && node --check src/shell.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zl007700/min_entropy_dev.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/zl007700/min_entropy_dev/issues"
+  },
+  "homepage": "https://github.com/zl007700/min_entropy_dev#readme"
+}
