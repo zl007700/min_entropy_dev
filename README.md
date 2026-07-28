@@ -15,9 +15,17 @@ cp ..\.env .env
 npm install
 npm run smoke
 npm run loop -- --rounds 10
+npm run loop -- --run-id sdk-10r-002 --rounds 10 --once
 ```
 
 Artifacts are written to `runs/<run_id>/`.
+
+Use `--once` for checkpointed experiments. It runs only the next missing round,
+writes artifacts and the report, then stops so a human can inspect the round
+before continuing.
+
+Use `--revise-attempts <n>` to control how many times a PR can return to the Dev
+Agent after a post-gate or tester `revise` result. The default is 2.
 
 ## Orchestrator Boundary
 
@@ -31,3 +39,6 @@ artifacts, and enforces gate outcomes. It must not substitute for an agent:
 
 If an agent fails to produce a valid result, the round is recorded as failed
 rather than repaired by orchestration fallback logic.
+
+Evaluator infrastructure failures (`*_failed_to_evaluate`) pause the loop and
+leave the PR open for inspection instead of silently continuing.

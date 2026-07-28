@@ -31,6 +31,14 @@ function saveState(next) {
   writeJson(statePath, next);
 }
 
+function heartbeat(dir, phase, extra = {}) {
+  writeJson(join(dir, "heartbeat.json"), {
+    phase,
+    at: new Date().toISOString(),
+    ...extra,
+  });
+}
+
 function roundDir(index) {
   return join(runDir, "iterations", String(index).padStart(3, "0"));
 }
@@ -82,18 +90,22 @@ async function runRound(index, current) {
   };
   writeJson(join(dir, "record.json"), record);
 
+  heartbeat(dir, "round_started", { index, branch });
   git(["checkout", current.experiment_branch], { cwd: repoWorkspace });
   git(["pull", "--ff-only", "origin", current.experiment_branch], { cwd: repoWorkspace });
 
   const repoSnapshot = repoContext();
+  const productState = productStateFor(current);
+  writeJson(join(dir, "product_state.json"), productState);
   let proposal;
   try {
+    heartbeat(dir, "product_started");
     proposal = await runClaudeAgent({
       kind: "product",
       promptFile: join(prompts, "product-manager.md"),
       workspace: repoWorkspace,
       artifactDir: dir,
-      context: { round: index, repo: repoSnapshot, previous_rounds: current.rounds.slice(-5) },
+      context: { round: index, repo: repoSnapshot, product_state: productState },
       maxTurns: 12,
     });
   } catch (error) {
@@ -107,6 +119,7 @@ async function runRound(index, current) {
 
   let preGate;
   try {
+    heartbeat(dir, "pre_gate_started");
     preGate = await runClaudeAgent({
       kind: "pre_gate",
       promptFile: join(prompts, "rubric-pre.md"),
@@ -133,6 +146,7 @@ async function runRound(index, current) {
 
   let dev;
   try {
+    heartbeat(dir, "dev_started", { attempt: 0 });
     dev = await runClaudeAgent({
       kind: "dev",
       promptFile: join(prompts, "dev.md"),
@@ -172,6 +186,7 @@ async function runRound(index, current) {
   const diff = gitMaybe(["diff", "--stat", "HEAD~1..HEAD"], { cwd: repoWorkspace });
   writeJson(join(dir, "dev_diff_stat.json"), compactOutput(diff));
   git(["push", "-u", "origin", branch], { cwd: repoWorkspace, timeout: 120000 });
+  heartbeat(dir, "pr_create_started", { branch });
   const prBody = [
     `Iteration ${index} for ${config.runId}.`,
     "",
@@ -202,89 +217,10 @@ async function runRound(index, current) {
   const prUrl = prCreate.stdout.trim();
   writeText(join(dir, "pr_url.txt"), `${prUrl}\n`);
 
-  const prDiff = gh(["pr", "diff", prUrl, "--repo", config.repo], {
-    cwd: repoWorkspace,
-    timeout: 120000,
-  }).stdout;
-  writeText(join(dir, "pr.diff"), prDiff);
-  let postGate;
-  try {
-    postGate = await runClaudeAgent({
-      kind: "post_gate",
-      promptFile: join(prompts, "rubric-post.md"),
-      workspace: repoWorkspace,
-      artifactDir: dir,
-      context: { proposal, pre_gate: preGate, pr_url: prUrl, pr_diff: prDiff.slice(0, 60000) },
-      maxTurns: 10,
-    });
-  } catch (error) {
-    closeFailedPr(prUrl);
-    return finishRound(current, dir, {
-      ...record,
-      status: "post_gate_failed_to_evaluate",
-      proposal,
-      pre_gate: preGate,
-      dev,
-      pr_url: prUrl,
-      error: agentError(error),
-    });
-  }
-  writeJson(join(dir, "post_gate.json"), postGate);
-  if (postGate.decision !== "pass") {
-    gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, "post_gate.json")], {
-      cwd: repoWorkspace,
-    });
-    closeFailedPr(prUrl);
-    return finishRound(current, dir, {
-      ...record,
-      status: "post_gate_failed",
-      proposal,
-      pre_gate: preGate,
-      dev,
-      pr_url: prUrl,
-      post_gate: postGate,
-    });
-  }
-
-  let tester;
-  try {
-    tester = await runClaudeAgent({
-      kind: "tester",
-      promptFile: join(prompts, "tester.md"),
-      workspace: repoWorkspace,
-      artifactDir: dir,
-      context: { proposal, pre_gate: preGate, post_gate: postGate, pr_url: prUrl, pr_diff: prDiff.slice(0, 60000) },
-      maxTurns: 16,
-    });
-  } catch (error) {
-    closeFailedPr(prUrl);
-    return finishRound(current, dir, {
-      ...record,
-      status: "tester_failed_to_evaluate",
-      proposal,
-      pre_gate: preGate,
-      dev,
-      pr_url: prUrl,
-      post_gate: postGate,
-      error: agentError(error),
-    });
-  }
-  writeJson(join(dir, "tester_report.json"), tester);
-  if (tester.decision !== "pass") {
-    gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, "tester_report.json")], {
-      cwd: repoWorkspace,
-    });
-    closeFailedPr(prUrl);
-    return finishRound(current, dir, {
-      ...record,
-      status: "tester_failed",
-      proposal,
-      pre_gate: preGate,
-      dev,
-      pr_url: prUrl,
-      post_gate: postGate,
-      tester,
-    });
+  let gateResult = await evaluateAndRevise({ current, dir, record, proposal, preGate, dev, prUrl, branch });
+  if (gateResult.status !== "pass") {
+    if (!gateResult.keepOpen) closeFailedPr(prUrl);
+    return finishRound(current, dir, gateResult.record);
   }
 
   gh(["pr", "merge", prUrl, "--repo", config.repo, "--squash", "--delete-branch"], {
@@ -300,8 +236,9 @@ async function runRound(index, current) {
     pre_gate: preGate,
     dev,
     pr_url: prUrl,
-    post_gate: postGate,
-    tester,
+    post_gate: gateResult.postGate,
+    tester: gateResult.tester,
+    revisions: gateResult.revisions,
     completed_at: new Date().toISOString(),
   });
 }
@@ -311,6 +248,224 @@ function closeFailedPr(prUrl) {
     cwd: repoWorkspace,
     timeout: 120000,
   });
+}
+
+async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev, prUrl, branch }) {
+  const revisions = [];
+  let latestDev = dev;
+  for (let attempt = 0; attempt <= config.reviseAttempts; attempt += 1) {
+    const prDiff = gh(["pr", "diff", prUrl, "--repo", config.repo], {
+      cwd: repoWorkspace,
+      timeout: 120000,
+    }).stdout;
+    writeText(join(dir, attempt === 0 ? "pr.diff" : `pr.revision-${attempt}.diff`), prDiff);
+    const deterministicChecks = runDeterministicChecks(dir, attempt);
+
+    let postGate;
+    try {
+      heartbeat(dir, "post_gate_started", { attempt });
+      postGate = await runClaudeAgent({
+        kind: "post_gate",
+        promptFile: join(prompts, "rubric-post.md"),
+        workspace: repoWorkspace,
+        artifactDir: dir,
+        context: {
+          proposal,
+          pre_gate: preGate,
+          pr_url: prUrl,
+          pr_diff: prDiff.slice(0, 60000),
+          deterministic_checks: deterministicChecks,
+          revision_attempt: attempt,
+          previous_revisions: revisions,
+        },
+        maxTurns: 10,
+      });
+    } catch (error) {
+      return {
+        status: "post_gate_failed_to_evaluate",
+        keepOpen: true,
+        record: {
+          ...record,
+          status: "post_gate_failed_to_evaluate",
+          proposal,
+          pre_gate: preGate,
+          dev: latestDev,
+          pr_url: prUrl,
+          revisions,
+          error: agentError(error),
+        },
+      };
+    }
+    writeJson(join(dir, attempt === 0 ? "post_gate.json" : `post_gate.revision-${attempt}.json`), postGate);
+    if (postGate.decision !== "pass") {
+      if (attempt < config.reviseAttempts && postGate.decision === "revise") {
+        gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, attempt === 0 ? "post_gate.json" : `post_gate.revision-${attempt}.json`)], {
+          cwd: repoWorkspace,
+        });
+        const revision = await runRevision({
+          dir,
+          attempt: attempt + 1,
+          proposal,
+          preGate,
+          prUrl,
+          branch,
+          feedbackKind: "post_gate",
+          feedback: postGate,
+        });
+        latestDev = revision.dev;
+        revisions.push(revision);
+        continue;
+      }
+      return {
+        status: "post_gate_failed",
+        record: {
+          ...record,
+          status: "post_gate_failed",
+          proposal,
+          pre_gate: preGate,
+          dev: latestDev,
+          pr_url: prUrl,
+          post_gate: postGate,
+          revisions,
+        },
+      };
+    }
+
+    let tester;
+    try {
+      heartbeat(dir, "tester_started", { attempt });
+      tester = await runClaudeAgent({
+        kind: "tester",
+        promptFile: join(prompts, "tester.md"),
+        workspace: repoWorkspace,
+        artifactDir: dir,
+        context: {
+          proposal,
+          pre_gate: preGate,
+          post_gate: postGate,
+          pr_url: prUrl,
+          pr_diff: prDiff.slice(0, 60000),
+          deterministic_checks: deterministicChecks,
+        },
+        maxTurns: 12,
+      });
+    } catch (error) {
+      return {
+        status: "tester_failed_to_evaluate",
+        keepOpen: true,
+        record: {
+          ...record,
+          status: "tester_failed_to_evaluate",
+          proposal,
+          pre_gate: preGate,
+          dev: latestDev,
+          pr_url: prUrl,
+          post_gate: postGate,
+          revisions,
+          error: agentError(error),
+        },
+      };
+    }
+    writeJson(join(dir, attempt === 0 ? "tester_report.json" : `tester_report.revision-${attempt}.json`), tester);
+    if (tester.decision === "pass") {
+      return { status: "pass", postGate, tester, revisions };
+    }
+    if (attempt < config.reviseAttempts) {
+      gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, attempt === 0 ? "tester_report.json" : `tester_report.revision-${attempt}.json`)], {
+        cwd: repoWorkspace,
+      });
+      const revision = await runRevision({
+        dir,
+        attempt: attempt + 1,
+        proposal,
+        preGate,
+        prUrl,
+        branch,
+        feedbackKind: "tester",
+        feedback: tester,
+      });
+      latestDev = revision.dev;
+      revisions.push(revision);
+      continue;
+    }
+    return {
+      status: "tester_failed",
+      record: {
+        ...record,
+        status: "tester_failed",
+        proposal,
+        pre_gate: preGate,
+        dev: latestDev,
+        pr_url: prUrl,
+        post_gate: postGate,
+        tester,
+        revisions,
+      },
+    };
+  }
+}
+
+function runDeterministicChecks(dir, attempt) {
+  heartbeat(dir, "deterministic_checks_started", { attempt });
+  const checks = [];
+  const install = existsSync(join(repoWorkspace, "node_modules"))
+    ? { command: "npm ci", status: "skipped", stdout: "node_modules already present", stderr: "" }
+    : runNpm(["ci"]);
+  checks.push(compactOutput(install));
+  for (const args of [
+    ["run", "build"],
+    ["run", "lint"],
+  ]) {
+    checks.push(compactOutput(runNpm(args)));
+  }
+  const report = {
+    decision: checks.some((check) => check.status !== 0 && check.status !== "skipped") ? "fail" : "pass",
+    checks,
+  };
+  writeJson(join(dir, attempt === 0 ? "deterministic_checks.json" : `deterministic_checks.revision-${attempt}.json`), report);
+  return report;
+}
+
+function runNpm(args) {
+  if (process.platform === "win32") {
+    return run("powershell.exe", ["-NoProfile", "-Command", `npm ${args.join(" ")}`], {
+      cwd: repoWorkspace,
+      timeout: 120000,
+    });
+  }
+  return run("npm", args, { cwd: repoWorkspace, timeout: 120000 });
+}
+
+async function runRevision({ dir, attempt, proposal, preGate, prUrl, branch, feedbackKind, feedback }) {
+  heartbeat(dir, "dev_revision_started", { attempt, feedback_kind: feedbackKind });
+  git(["checkout", branch], { cwd: repoWorkspace });
+  git(["pull", "--ff-only", "origin", branch], { cwd: repoWorkspace });
+  const dev = await runClaudeAgent({
+    kind: "dev",
+    promptFile: join(prompts, "dev.md"),
+    workspace: repoWorkspace,
+    artifactDir: dir,
+    context: {
+      proposal,
+      pre_gate: preGate,
+      branch,
+      pr_url: prUrl,
+      revision_attempt: attempt,
+      revision_feedback: { kind: feedbackKind, feedback },
+    },
+    maxTurns: 20,
+  });
+  writeJson(join(dir, `dev.revision-${attempt}.json`), dev);
+  const head = git(["rev-parse", "HEAD"], { cwd: repoWorkspace }).stdout.trim();
+  git(["push", "origin", branch], { cwd: repoWorkspace, timeout: 120000 });
+  return {
+    attempt,
+    feedback_kind: feedbackKind,
+    feedback,
+    dev,
+    commit: head,
+    completed_at: new Date().toISOString(),
+  };
 }
 
 function agentError(error) {
@@ -341,6 +496,49 @@ function repoContext() {
   };
 }
 
+function productStateFor(current) {
+  const merged = current.rounds.filter((round) => round.status === "merged");
+  const rejected = current.rounds.filter((round) =>
+    ["pre_gate_rejected", "post_gate_failed", "tester_failed", "product_failed", "dev_failed", "dev_no_commit"].includes(
+      round.status,
+    ),
+  );
+  const infrastructure = current.rounds.filter((round) =>
+    ["pre_gate_failed_to_evaluate", "post_gate_failed_to_evaluate", "tester_failed_to_evaluate"].includes(round.status),
+  );
+  const diffStat = gitMaybe(["diff", "--stat", `${current.base_branch}..${current.experiment_branch}`], {
+    cwd: repoWorkspace,
+  });
+  const mergedLog = gitMaybe(["log", "--oneline", `${current.base_branch}..${current.experiment_branch}`], {
+    cwd: repoWorkspace,
+  });
+  return {
+    base_branch: current.base_branch,
+    test_branch: current.experiment_branch,
+    current_diff_stat: diffStat.stdout,
+    merged_commits: mergedLog.stdout,
+    merged_capabilities: merged.map((round) => ({
+      round: round.index,
+      title: round.proposal?.title || "",
+      pr_url: round.pr_url || "",
+      value_delta: round.post_gate?.verified_value_delta ?? round.pre_gate?.estimated_value_delta ?? "",
+      entropy_delta: round.post_gate?.entropy_delta ?? round.pre_gate?.estimated_entropy_delta ?? "",
+    })),
+    failed_lessons: rejected.map((round) => ({
+      round: round.index,
+      status: round.status,
+      title: round.proposal?.title || "",
+      reason: round.post_gate?.reason || round.pre_gate?.reason || round.tester?.reason || round.error || "",
+    })),
+    infrastructure_issues: infrastructure.map((round) => ({
+      round: round.index,
+      status: round.status,
+      title: round.proposal?.title || "",
+      error: round.error || "",
+    })),
+  };
+}
+
 async function main() {
   let current = state();
   ensureExperimentBranch(current);
@@ -349,8 +547,19 @@ async function main() {
     console.log(`Starting round ${i}/${current.target_rounds}`);
     current = await runRound(i, current);
     console.log(`Round ${i} status: ${current.rounds.at(-1).status}`);
+    if (shouldPauseAfter(current.rounds.at(-1))) {
+      console.log(`Pausing after ${current.rounds.at(-1).status}; evaluator did not produce a reliable gate result.`);
+      break;
+    }
+    if (config.once) break;
   }
   writeReport(current);
+}
+
+function shouldPauseAfter(round) {
+  return ["pre_gate_failed_to_evaluate", "post_gate_failed_to_evaluate", "tester_failed_to_evaluate"].includes(
+    round?.status,
+  );
 }
 
 function writeReport(current) {

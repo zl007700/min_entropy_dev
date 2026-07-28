@@ -87,6 +87,33 @@ export async function runClaudeAgent({
     if (fallback && existsSync(fallback)) {
       return readJson(fallback);
     }
+    return repairJson({ kind, text: finalText || stdout, artifactDir });
+  }
+}
+
+async function repairJson({ kind, text, artifactDir }) {
+  const repairPromptPath = join(artifactDir, `${kind}.json-repair.prompt.txt`);
+  const repairPrompt = [
+    "Convert the following agent output into strict JSON only.",
+    "Do not add new facts. Do not change the decision or meaning. Return only the corrected JSON object.",
+    "",
+    text,
+  ].join("\n");
+  writeText(repairPromptPath, repairPrompt);
+  const command = process.platform === "win32" ? "powershell.exe" : "bash";
+  const script =
+    process.platform === "win32"
+      ? `Get-Content -LiteralPath '${repairPromptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text --max-turns 3 --tools ''`
+      : `cat '${repairPromptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text --max-turns 3 --tools ''`;
+  const args = process.platform === "win32" ? ["-NoProfile", "-Command", script] : ["-lc", script];
+  const result = await runStreaming(command, args, { cwd: artifactDir, timeout: 180000 });
+  writeText(join(artifactDir, `${kind}.json-repair.final.txt`), result.stdout || result.stderr || "");
+  if (result.status !== 0) {
+    throw new Error(`${kind} JSON repair failed: ${result.stderr || result.error || "unknown error"}`);
+  }
+  try {
+    return tryParseJson(result.stdout);
+  } catch (error) {
     throw error;
   }
 }
