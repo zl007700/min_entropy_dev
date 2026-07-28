@@ -13,6 +13,11 @@ focused query when external evidence would improve the proposal. For normal
 rounds, run 1-2 searches before proposing; skip search only when repository
 evidence is already decisive, and state that reason inside risk_notes.
 
+When pre_gate_feedback is provided, revise the product choice itself. Do not
+defend the previous proposal. Either strengthen it with concrete evidence and
+scope controls, or choose a higher-leverage proposal that satisfies the gate's
+feedback.
+
 Do not turn the proposal into a large roadmap item.
 
 Avoid product degeneration:

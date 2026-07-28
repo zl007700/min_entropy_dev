@@ -98,45 +98,72 @@ async function runRound(index, current) {
   const productState = productStateFor(current);
   writeJson(join(dir, "product_state.json"), productState);
   let proposal;
-  try {
-    heartbeat(dir, "product_started");
-    proposal = await runClaudeAgent({
-      kind: "product",
-      promptFile: join(prompts, "product-manager.md"),
-      workspace: repoWorkspace,
-      artifactDir: dir,
-      context: { round: index, repo: repoSnapshot, product_state: productState },
-    });
-  } catch (error) {
-    return finishRound(current, dir, {
-      ...record,
-      status: "product_failed",
-      error: agentError(error),
-    });
-  }
-  writeJson(join(dir, "proposal.json"), proposal);
-
   let preGate;
-  try {
-    heartbeat(dir, "pre_gate_started");
-    preGate = await runClaudeAgent({
-      kind: "pre_gate",
-      promptFile: join(prompts, "rubric-pre.md"),
-      workspace: repoWorkspace,
-      artifactDir: dir,
-      context: { proposal, repo: repoSnapshot, startup_policy: "prefer low-value low-entropy increments" },
-    });
-  } catch (error) {
-    return finishRound(current, dir, {
-      ...record,
-      status: "pre_gate_failed_to_evaluate",
-      proposal,
-      error: agentError(error),
-    });
-  }
-  writeJson(join(dir, "pre_gate.json"), preGate);
-  if (preGate.decision !== "pass") {
-    return finishRound(current, dir, { ...record, status: "pre_gate_rejected", proposal, pre_gate: preGate });
+  const productRevisions = [];
+  for (let attempt = 0; attempt <= config.reviseAttempts; attempt += 1) {
+    try {
+      heartbeat(dir, "product_started", { attempt });
+      proposal = await runClaudeAgent({
+        kind: "product",
+        promptFile: join(prompts, "product-manager.md"),
+        workspace: repoWorkspace,
+        artifactDir: dir,
+        context: {
+          round: index,
+          repo: repoSnapshot,
+          product_state: productState,
+          previous_proposal: attempt > 0 ? proposal : undefined,
+          pre_gate_feedback: attempt > 0 ? preGate : undefined,
+        },
+      });
+    } catch (error) {
+      return finishRound(current, dir, {
+        ...record,
+        status: "product_failed",
+        proposal,
+        pre_gate: preGate,
+        product_revisions: productRevisions,
+        error: agentError(error),
+      });
+    }
+    writeJson(join(dir, attempt === 0 ? "proposal.json" : `proposal.revision-${attempt}.json`), proposal);
+
+    try {
+      heartbeat(dir, "pre_gate_started", { attempt });
+      preGate = await runClaudeAgent({
+        kind: "pre_gate",
+        promptFile: join(prompts, "rubric-pre.md"),
+        workspace: repoWorkspace,
+        artifactDir: dir,
+        context: {
+          proposal,
+          repo: repoSnapshot,
+          product_state: productState,
+          startup_policy: "prefer low-value low-entropy increments",
+        },
+      });
+    } catch (error) {
+      return finishRound(current, dir, {
+        ...record,
+        status: "pre_gate_failed_to_evaluate",
+        proposal,
+        pre_gate: preGate,
+        product_revisions: productRevisions,
+        error: agentError(error),
+      });
+    }
+    writeJson(join(dir, attempt === 0 ? "pre_gate.json" : `pre_gate.revision-${attempt}.json`), preGate);
+    if (preGate.decision === "pass") break;
+    productRevisions.push({ attempt: attempt + 1, proposal, pre_gate: preGate });
+    if (preGate.decision !== "revise" || attempt === config.reviseAttempts) {
+      return finishRound(current, dir, {
+        ...record,
+        status: "pre_gate_rejected",
+        proposal,
+        pre_gate: preGate,
+        product_revisions: productRevisions,
+      });
+    }
   }
 
   gitMaybe(["branch", "-D", branch], { cwd: repoWorkspace });
