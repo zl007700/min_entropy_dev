@@ -677,14 +677,17 @@ function productStateFor(current) {
   const mergedLog = gitMaybe(["log", "--oneline", `${current.base_branch}..${current.experiment_branch}`], {
     cwd: repoWorkspace,
   });
+  const productMemory = productMemoryFor(current.rounds, merged);
   return {
     base_branch: current.base_branch,
     test_branch: current.experiment_branch,
+    product_memory: productMemory,
     current_diff_stat: diffStat.stdout,
     merged_commits: mergedLog.stdout,
     merged_capabilities: merged.map((round) => ({
       round: round.index,
       title: round.proposal?.title || "",
+      growth_category: categoryFor(round),
       pr_url: round.pr_url || "",
       value_delta: round.post_gate?.verified_value_delta ?? round.pre_gate?.estimated_value_delta ?? "",
       entropy_delta: round.post_gate?.fused_entropy_delta ?? round.post_gate?.entropy_delta ?? round.pre_gate?.estimated_entropy_delta ?? "",
@@ -703,6 +706,80 @@ function productStateFor(current) {
       error: round.error || "",
     })),
   };
+}
+
+function productMemoryFor(rounds, merged) {
+  const recentMerged = merged.slice(-8).map((round) => ({
+    round: round.index,
+    title: round.proposal?.title || "",
+    growth_category: categoryFor(round),
+    value_delta: valueFor(round),
+    entropy_delta: entropyFor(round),
+    running_reward: round.post_gate?.running_reward ?? "",
+  }));
+  const lowValueStreak = [...merged].reverse().findIndex((round) => valueFor(round) > 1);
+  const normalizedLowValueStreak = lowValueStreak === -1 ? merged.length : lowValueStreak;
+  const categoryCounts = recentMerged.reduce((counts, item) => {
+    counts[item.growth_category] = (counts[item.growth_category] || 0) + 1;
+    return counts;
+  }, {});
+  const dominantCategory = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  return {
+    recent_merged_features: recentMerged,
+    recent_failed_or_rejected: rounds
+      .filter((round) => round.status !== "merged")
+      .slice(-5)
+      .map((round) => ({
+        round: round.index,
+        status: round.status,
+        title: round.proposal?.title || "",
+        reason: round.post_gate?.reason || round.pre_gate?.reason || round.tester?.reason || round.error || "",
+      })),
+    low_value_streak: normalizedLowValueStreak,
+    category_counts: categoryCounts,
+    dominant_category: dominantCategory,
+    roadmap_pressure: roadmapPressure({ lowValueStreak: normalizedLowValueStreak, dominantCategory, categoryCounts }),
+  };
+}
+
+function roadmapPressure({ lowValueStreak, dominantCategory, categoryCounts }) {
+  const notes = [];
+  if (lowValueStreak > 0) {
+    notes.push(`Recent merged work has ${lowValueStreak} low-value round(s); raise the bar for the next proposal.`);
+  }
+  if (dominantCategory && categoryCounts[dominantCategory] >= 4) {
+    notes.push(`Recent work is concentrated in ${dominantCategory}; prefer a different growth category unless evidence is strong.`);
+  }
+  if (notes.length === 0) {
+    notes.push("No degeneration pressure detected; choose the highest value low-entropy next step.");
+  }
+  return notes;
+}
+
+function valueFor(round) {
+  return Number(round.post_gate?.verified_value_delta ?? round.pre_gate?.estimated_value_delta ?? 0);
+}
+
+function entropyFor(round) {
+  return Number(
+    round.post_gate?.fused_entropy_delta ?? round.post_gate?.entropy_delta ?? round.pre_gate?.estimated_entropy_delta ?? 0,
+  );
+}
+
+function categoryFor(round) {
+  const explicit = round.proposal?.growth_category;
+  if (explicit) return explicit;
+  return inferCategory(round.proposal?.title || "");
+}
+
+function inferCategory(title) {
+  const normalized = title.toLowerCase();
+  if (/sdk|agent|tool|system|prompt|context|memory/.test(normalized)) return "core_agent_capability";
+  if (/retry|stop|abort|error|fail|recover|persist|localstorage/.test(normalized)) return "reliability";
+  if (/export|markdown|copy|timestamp|divider|scroll|composer|button|header|latest/.test(normalized)) return "usability";
+  if (/trace|log|metric|dashboard|debug|inspect/.test(normalized)) return "observability";
+  if (/test|lint|smoke|build|ci|script/.test(normalized)) return "developer_experience";
+  return "conversation_control";
 }
 
 async function main() {
@@ -729,6 +806,10 @@ function shouldPauseAfter(round) {
 }
 
 function writeReport(current) {
+  const memory = productMemoryFor(
+    current.rounds,
+    current.rounds.filter((round) => round.status === "merged"),
+  );
   const report = [
     `# ${current.run_id} Report`,
     "",
@@ -744,6 +825,12 @@ function writeReport(current) {
       const reward = round.post_gate?.running_reward ?? "";
       return `| ${round.index} | ${round.status} | ${round.pr_url || ""} | ${value} | ${entropy} | ${reward} |`;
     }),
+    "",
+    "Product memory:",
+    "",
+    `- Low value streak: ${memory.low_value_streak}`,
+    `- Dominant category: ${memory.dominant_category || "none"}`,
+    `- Roadmap pressure: ${memory.roadmap_pressure.join(" ")}`,
     "",
     "Human eval target:",
     "",

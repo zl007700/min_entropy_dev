@@ -27,7 +27,38 @@ const result = await runClaudeAgent({
       recent_commits: recent.stdout,
       package_json: pkg,
     },
-    previous_rounds: [],
+    product_state: {
+      product_memory: {
+        recent_merged_features: [
+          {
+            round: 1,
+            title: "Render assistant messages as Markdown",
+            growth_category: "usability",
+            value_delta: 2,
+            entropy_delta: 17.17,
+            running_reward: 0.12,
+          },
+          {
+            round: 2,
+            title: "Add copy button on assistant messages",
+            growth_category: "usability",
+            value_delta: 1,
+            entropy_delta: 15.36,
+            running_reward: 0.07,
+          },
+        ],
+        low_value_streak: 1,
+        category_counts: { usability: 2 },
+        dominant_category: "usability",
+        roadmap_pressure: [
+          "Recent merged work has 1 low-value round(s); raise the bar for the next proposal.",
+          "Recent work is concentrated in usability; prefer a different growth category unless evidence is strong.",
+        ],
+      },
+      merged_capabilities: [],
+      failed_lessons: [],
+      infrastructure_issues: [],
+    },
     smoke_note: "Verify the Product Manager can choose and run the web search tool itself.",
   },
 });

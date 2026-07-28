@@ -10,6 +10,10 @@ Rubric:
 - Pass if value is real enough and entropy is low or justified.
 - Reject fake value, broad rewrites, architecture churn, or hidden production
   complexity.
+- Use product_state.product_memory when present. If recent work shows a
+  low_value_streak or one category dominates, require the proposal to prove
+  novelty and product leverage. Revise or reject duplicate UI polish,
+  near-parity controls, or another small convenience feature with weak leverage.
 
 Return only JSON:
 
