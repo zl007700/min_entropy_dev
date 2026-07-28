@@ -18,3 +18,16 @@ npm run loop -- --rounds 10
 ```
 
 Artifacts are written to `runs/<run_id>/`.
+
+## Orchestrator Boundary
+
+The orchestrator coordinates the loop, creates branches and PRs, records
+artifacts, and enforces gate outcomes. It must not substitute for an agent:
+
+- Product proposals must come from the Product Manager Agent.
+- Code changes and commits must come from the Dev Agent.
+- Rubric decisions must come from the Rubric Agent.
+- Test decisions must come from the Tester Agent.
+
+If an agent fails to produce a valid result, the round is recorded as failed
+rather than repaired by orchestration fallback logic.

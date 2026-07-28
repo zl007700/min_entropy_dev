@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { configFromEnv, loadEnv } from "./config.mjs";
 import { ensureDir, readJson, readText, writeJson, writeText } from "./io.mjs";
@@ -97,18 +97,32 @@ async function runRound(index, current) {
       maxTurns: 12,
     });
   } catch (error) {
-    proposal = fallbackProposal(index, error);
+    return finishRound(current, dir, {
+      ...record,
+      status: "product_failed",
+      error: agentError(error),
+    });
   }
   writeJson(join(dir, "proposal.json"), proposal);
 
-  const preGate = await runClaudeAgent({
-    kind: "pre_gate",
-    promptFile: join(prompts, "rubric-pre.md"),
-    workspace: repoWorkspace,
-    artifactDir: dir,
-    context: { proposal, repo: repoSnapshot, startup_policy: "prefer low-value low-entropy increments" },
-    maxTurns: 8,
-  });
+  let preGate;
+  try {
+    preGate = await runClaudeAgent({
+      kind: "pre_gate",
+      promptFile: join(prompts, "rubric-pre.md"),
+      workspace: repoWorkspace,
+      artifactDir: dir,
+      context: { proposal, repo: repoSnapshot, startup_policy: "prefer low-value low-entropy increments" },
+      maxTurns: 8,
+    });
+  } catch (error) {
+    return finishRound(current, dir, {
+      ...record,
+      status: "pre_gate_failed_to_evaluate",
+      proposal,
+      error: agentError(error),
+    });
+  }
   writeJson(join(dir, "pre_gate.json"), preGate);
   if (preGate.decision !== "pass") {
     return finishRound(current, dir, { ...record, status: "pre_gate_rejected", proposal, pre_gate: preGate });
@@ -128,9 +142,32 @@ async function runRound(index, current) {
       maxTurns: 30,
     });
   } catch (error) {
-      dev = recoverDevChanges(error, proposal, dir, current.experiment_branch);
+    return finishRound(current, dir, {
+      ...record,
+      status: "dev_failed",
+      proposal,
+      pre_gate: preGate,
+      error: agentError(error),
+    });
   }
   writeJson(join(dir, "dev.json"), dev);
+
+  const branchHead = gitMaybe(["rev-parse", "HEAD"], { cwd: repoWorkspace });
+  const baseHead = gitMaybe(["rev-parse", current.experiment_branch], { cwd: repoWorkspace });
+  if (
+    branchHead.status !== 0 ||
+    baseHead.status !== 0 ||
+    branchHead.stdout.trim() === baseHead.stdout.trim()
+  ) {
+    return finishRound(current, dir, {
+      ...record,
+      status: "dev_no_commit",
+      proposal,
+      pre_gate: preGate,
+      dev,
+      error: "Dev Agent completed without producing a commit on the iteration branch.",
+    });
+  }
 
   const diff = gitMaybe(["diff", "--stat", "HEAD~1..HEAD"], { cwd: repoWorkspace });
   writeJson(join(dir, "dev_diff_stat.json"), compactOutput(diff));
@@ -170,14 +207,28 @@ async function runRound(index, current) {
     timeout: 120000,
   }).stdout;
   writeText(join(dir, "pr.diff"), prDiff);
-  const postGate = await runClaudeAgent({
-    kind: "post_gate",
-    promptFile: join(prompts, "rubric-post.md"),
-    workspace: repoWorkspace,
-    artifactDir: dir,
-    context: { proposal, pre_gate: preGate, pr_url: prUrl, pr_diff: prDiff.slice(0, 60000) },
-    maxTurns: 10,
-  });
+  let postGate;
+  try {
+    postGate = await runClaudeAgent({
+      kind: "post_gate",
+      promptFile: join(prompts, "rubric-post.md"),
+      workspace: repoWorkspace,
+      artifactDir: dir,
+      context: { proposal, pre_gate: preGate, pr_url: prUrl, pr_diff: prDiff.slice(0, 60000) },
+      maxTurns: 10,
+    });
+  } catch (error) {
+    closeFailedPr(prUrl);
+    return finishRound(current, dir, {
+      ...record,
+      status: "post_gate_failed_to_evaluate",
+      proposal,
+      pre_gate: preGate,
+      dev,
+      pr_url: prUrl,
+      error: agentError(error),
+    });
+  }
   writeJson(join(dir, "post_gate.json"), postGate);
   if (postGate.decision !== "pass") {
     gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, "post_gate.json")], {
@@ -195,7 +246,29 @@ async function runRound(index, current) {
     });
   }
 
-  const tester = runDeterministicTester(proposal, postGate);
+  let tester;
+  try {
+    tester = await runClaudeAgent({
+      kind: "tester",
+      promptFile: join(prompts, "tester.md"),
+      workspace: repoWorkspace,
+      artifactDir: dir,
+      context: { proposal, pre_gate: preGate, post_gate: postGate, pr_url: prUrl, pr_diff: prDiff.slice(0, 60000) },
+      maxTurns: 16,
+    });
+  } catch (error) {
+    closeFailedPr(prUrl);
+    return finishRound(current, dir, {
+      ...record,
+      status: "tester_failed_to_evaluate",
+      proposal,
+      pre_gate: preGate,
+      dev,
+      pr_url: prUrl,
+      post_gate: postGate,
+      error: agentError(error),
+    });
+  }
   writeJson(join(dir, "tester_report.json"), tester);
   if (tester.decision !== "pass") {
     gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, "tester_report.json")], {
@@ -240,131 +313,8 @@ function closeFailedPr(prUrl) {
   });
 }
 
-function fallbackProposal(index, error) {
-  const variants = [
-    {
-      title: "Add a small character counter to the composer",
-      problem: "The composer gives no lightweight feedback about prompt length.",
-      user_value: "A counter helps users keep first prompts concise without changing chat behavior.",
-    },
-    {
-      title: "Add clear chat control",
-      problem: "Users cannot reset the current session without reloading the page.",
-      user_value: "A clear control lets users recover a fresh state quickly.",
-    },
-    {
-      title: "Add missing API key setup hint",
-      problem: "When the LLM key is missing, users only see an error after sending.",
-      user_value: "A visible setup hint makes configuration state obvious before the first send.",
-    },
-  ];
-  const chosen = variants[index % variants.length];
-  return {
-    ...chosen,
-    acceptance_criteria: [
-      "The change is visible in the existing chat UI.",
-      "The change touches no LLM provider or request-shape code.",
-      "The app still passes npm run build and npm run lint.",
-    ],
-    non_goals: ["No new dependencies", "No routing changes", "No persistence"],
-    suggested_files: ["src/App.tsx", "src/App.css"],
-    risk_notes: [`Fallback proposal used because PM agent failed: ${String(error.message || error).slice(0, 200)}`],
-    value_hypothesis: "Small visible improvement with low implementation risk.",
-    generated_by_fallback: true,
-  };
-}
-
-function runDeterministicTester(proposal, postGate) {
-  const checks = [];
-  const install = existsSync(join(repoWorkspace, "node_modules"))
-    ? { command: "npm ci", status: "skipped", stdout: "node_modules already present", stderr: "" }
-    : runNpm(["ci"]);
-  checks.push(compactOutput(install));
-  for (const args of [
-    ["run", "build"],
-    ["run", "lint"],
-  ]) {
-    checks.push(compactOutput(runNpm(args)));
-  }
-  const failed = checks.find((item) => item.status !== 0 && item.status !== "skipped");
-  const acceptance = (proposal.acceptance_criteria || []).map((criterion) => ({
-    criterion,
-    status: postGate.decision === "pass" ? "pass" : "unclear",
-    evidence: "Post-PR rubric evaluated PR diff against this criterion; deterministic tester verified build/lint.",
-  }));
-  return {
-    decision: failed ? "fail" : "pass",
-    checks,
-    acceptance_results: acceptance,
-    issues: failed ? ["Build or lint failed; see checks."] : [],
-    reason: failed
-      ? "Deterministic build/lint tester failed."
-      : "Deterministic tester passed build/lint and reused post-gate acceptance evidence.",
-  };
-}
-
-function recoverDevChanges(error, proposal, dir, experimentBranch) {
-  const status = gitMaybe(["status", "--short"], { cwd: repoWorkspace });
-  const head = gitMaybe(["rev-parse", "HEAD"], { cwd: repoWorkspace });
-  const base = gitMaybe(["rev-parse", experimentBranch], { cwd: repoWorkspace });
-  if (
-    !status.stdout.trim() &&
-    head.status === 0 &&
-    base.status === 0 &&
-    head.stdout.trim() !== base.stdout.trim()
-  ) {
-    return {
-      summary: "Recovered a committed dev change after the Claude dev session hit a runner limit.",
-      tests: ["See dev trace for commands run before commit."],
-      files_changed: [],
-      risk_notes: [`dev agent ended with: ${String(error.message || error).slice(0, 300)}`],
-      recovered_by_orchestrator: true,
-    };
-  }
-  if (!status.stdout.trim()) {
-    throw error;
-  }
-  const checks = [];
-  const install = existsSync(join(repoWorkspace, "node_modules"))
-    ? { command: "npm ci", status: "skipped", stdout: "node_modules already present", stderr: "" }
-    : runNpm(["ci"]);
-  checks.push(compactOutput(install));
-  for (const args of [
-    ["run", "build"],
-    ["run", "lint"],
-  ]) {
-    checks.push(compactOutput(runNpm(args)));
-  }
-  const failed = checks.find((item) => item.status !== 0 && item.status !== "skipped");
-  if (failed) {
-    writeJson(join(dir, "dev_recovery_failed.json"), { error: String(error), checks });
-    throw error;
-  }
-  git(["add", "."], { cwd: repoWorkspace });
-  git(["commit", "-m", `feat: ${String(proposal.title || "valuable agent iteration").slice(0, 72)}`], {
-    cwd: repoWorkspace,
-    timeout: 120000,
-  });
-  return {
-    summary: "Recovered a valid dev diff after the Claude dev session hit a runner limit.",
-    tests: checks.map((item) => `${item.command}: ${item.status}`),
-    files_changed: status.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim().slice(3))
-      .filter(Boolean),
-    risk_notes: [`dev agent ended with: ${String(error.message || error).slice(0, 300)}`],
-    recovered_by_orchestrator: true,
-  };
-}
-
-function runNpm(args) {
-  if (process.platform === "win32") {
-    return run("powershell.exe", ["-NoProfile", "-Command", `npm ${args.join(" ")}`], {
-      cwd: repoWorkspace,
-      timeout: 120000,
-    });
-  }
-  return run("npm", args, { cwd: repoWorkspace, timeout: 120000 });
+function agentError(error) {
+  return String(error?.message || error).slice(0, 2000);
 }
 
 function finishRound(current, dir, record) {
