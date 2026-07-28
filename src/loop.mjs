@@ -257,6 +257,11 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
     }).stdout;
     writeText(join(dir, attempt === 0 ? "pr.diff" : `pr.revision-${attempt}.diff`), prDiff);
     const deterministicChecks = runDeterministicChecks(dir, attempt);
+    const objectiveEntropy = collectObjectiveEntropy(current.experiment_branch, branch);
+    writeJson(
+      join(dir, attempt === 0 ? "objective_entropy.json" : `objective_entropy.revision-${attempt}.json`),
+      objectiveEntropy,
+    );
 
     let postGate;
     try {
@@ -272,6 +277,7 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
           pr_url: prUrl,
           pr_diff: prDiff.slice(0, 60000),
           deterministic_checks: deterministicChecks,
+          objective_entropy: objectiveEntropy,
           revision_attempt: attempt,
           previous_revisions: revisions,
         },
@@ -292,6 +298,7 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
         },
       };
     }
+    postGate = normalizeReward(postGate, objectiveEntropy);
     writeJson(join(dir, attempt === 0 ? "post_gate.json" : `post_gate.revision-${attempt}.json`), postGate);
     if (postGate.decision !== "pass") {
       if (attempt < config.reviseAttempts && postGate.decision === "revise") {
@@ -460,6 +467,115 @@ function runNpm(args) {
   return run("npm", args, { cwd: repoWorkspace, timeout: 120000 });
 }
 
+function collectObjectiveEntropy(baseRef, headRef) {
+  const numstat = gitMaybe(["diff", "--numstat", `${baseRef}..${headRef}`], { cwd: repoWorkspace });
+  const rows = String(numstat.stdout || "")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [addedRaw, deletedRaw, ...fileParts] = line.split(/\t/);
+      const added = Number(addedRaw);
+      const deleted = Number(deletedRaw);
+      return {
+        file: fileParts.join("\t"),
+        added: Number.isFinite(added) ? added : 0,
+        deleted: Number.isFinite(deleted) ? deleted : 0,
+      };
+    });
+  const changedChurn = rows.reduce((sum, row) => sum + row.added + row.deleted, 0);
+  const touchedFiles = rows.length;
+  const maxFileChurn = rows.reduce((max, row) => Math.max(max, row.added + row.deleted), 0);
+  const maxFileChurnRatio = changedChurn === 0 ? 0 : maxFileChurn / changedChurn;
+  const hotspotPenalty = maxFileChurnRatio >= 0.65 ? 2 : maxFileChurnRatio >= 0.45 ? 1 : 0;
+  const testFilesTouched = rows.filter((row) => isTestFile(row.file)).length;
+  const prodChurn = rows
+    .filter((row) => !isTestFile(row.file))
+    .reduce((sum, row) => sum + row.added + row.deleted, 0);
+  const testDebtPenalty = prodChurn > 0 && testFilesTouched === 0 ? 2 : 0;
+  const stateSurface = collectStateSurfaceDelta(baseRef, headRef, rows.map((row) => row.file));
+  const stateSurfaceDelta =
+    Math.max(0, stateSurface.use_state_delta) * 0.75 +
+    Math.max(0, stateSurface.use_effect_delta) * 0.75 +
+    Math.max(0, stateSurface.handler_delta) * 0.25;
+  const objectiveEntropyDelta =
+    Math.log1p(changedChurn) + touchedFiles + hotspotPenalty + testDebtPenalty + stateSurfaceDelta;
+  return {
+    objective_entropy_delta: round2(objectiveEntropyDelta),
+    changed_churn: changedChurn,
+    touched_files: touchedFiles,
+    max_file_churn_ratio: round2(maxFileChurnRatio),
+    hotspot_penalty: hotspotPenalty,
+    test_files_touched: testFilesTouched,
+    test_debt_penalty: testDebtPenalty,
+    state_surface_delta: round2(stateSurfaceDelta),
+    state_surface: stateSurface,
+    formula:
+      "log(1+changed_churn)+touched_files+hotspot_penalty+test_debt_penalty+state_surface_delta",
+  };
+}
+
+function collectStateSurfaceDelta(baseRef, headRef, files) {
+  const totals = { use_state_delta: 0, use_effect_delta: 0, handler_delta: 0 };
+  for (const file of files.filter((item) => /\.(jsx?|tsx?)$/.test(item))) {
+    const base = gitMaybe(["show", `${baseRef}:${file}`], { cwd: repoWorkspace });
+    const head = gitMaybe(["show", `${headRef}:${file}`], { cwd: repoWorkspace });
+    const before = countStateSurface(base.status === 0 ? base.stdout : "");
+    const after = countStateSurface(head.status === 0 ? head.stdout : "");
+    totals.use_state_delta += after.use_state - before.use_state;
+    totals.use_effect_delta += after.use_effect - before.use_effect;
+    totals.handler_delta += after.handlers - before.handlers;
+  }
+  return totals;
+}
+
+function countStateSurface(text) {
+  return {
+    use_state: countMatches(text, /\buseState\s*\(/g),
+    use_effect: countMatches(text, /\buseEffect\s*\(/g),
+    handlers: countMatches(text, /\b(?:const\s+handle[A-Z]\w*|function\s+handle[A-Z]\w*|on[A-Z]\w*\s*=)/g),
+  };
+}
+
+function countMatches(text, pattern) {
+  return (String(text || "").match(pattern) || []).length;
+}
+
+function isTestFile(file) {
+  return /(^|[/\\])(__tests__|test|tests)([/\\]|$)|\.(test|spec)\.[jt]sx?$/.test(file);
+}
+
+function normalizeReward(postGate, objectiveEntropy) {
+  const verifiedValue = numberOr(postGate?.verified_value_delta, 0);
+  const objective = numberOr(objectiveEntropy?.objective_entropy_delta, 0);
+  const agentMultiplier = clamp(numberOr(postGate?.agent_entropy_multiplier, 1), 0.7, 2);
+  const uncertaintyMultiplier = clamp(numberOr(postGate?.uncertainty_multiplier, 1), 1, 1.5);
+  const fusedEntropy = objective * agentMultiplier * uncertaintyMultiplier;
+  return {
+    ...postGate,
+    verified_value_delta: verifiedValue,
+    objective_entropy_delta: round2(objective),
+    agent_entropy_multiplier: round2(agentMultiplier),
+    uncertainty_multiplier: round2(uncertaintyMultiplier),
+    fused_entropy_delta: round2(fusedEntropy),
+    running_reward: fusedEntropy === 0 ? null : round2(verifiedValue / fusedEntropy),
+    legacy_entropy_delta: postGate?.entropy_delta,
+    entropy_delta: round2(fusedEntropy),
+  };
+}
+
+function numberOr(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function round2(value) {
+  return Math.round(value * 100) / 100;
+}
+
 async function runRevision({ dir, attempt, proposal, preGate, prUrl, branch, feedbackKind, feedback }) {
   heartbeat(dir, "dev_revision_started", { attempt, feedback_kind: feedbackKind });
   git(["checkout", branch], { cwd: repoWorkspace });
@@ -546,7 +662,8 @@ function productStateFor(current) {
       title: round.proposal?.title || "",
       pr_url: round.pr_url || "",
       value_delta: round.post_gate?.verified_value_delta ?? round.pre_gate?.estimated_value_delta ?? "",
-      entropy_delta: round.post_gate?.entropy_delta ?? round.pre_gate?.estimated_entropy_delta ?? "",
+      entropy_delta: round.post_gate?.fused_entropy_delta ?? round.post_gate?.entropy_delta ?? round.pre_gate?.estimated_entropy_delta ?? "",
+      running_reward: round.post_gate?.running_reward ?? "",
     })),
     failed_lessons: rejected.map((round) => ({
       round: round.index,
@@ -594,12 +711,13 @@ function writeReport(current) {
     `Baseline: ${current.base_branch}`,
     `Experiment: ${current.experiment_branch}`,
     "",
-    "| Round | Status | PR | Value | Entropy |",
-    "| --- | --- | --- | --- | --- |",
+    "| Round | Status | PR | Value | Entropy | Reward |",
+    "| --- | --- | --- | --- | --- | --- |",
     ...current.rounds.map((round) => {
       const value = round.post_gate?.verified_value_delta ?? round.pre_gate?.estimated_value_delta ?? "";
-      const entropy = round.post_gate?.entropy_delta ?? round.pre_gate?.estimated_entropy_delta ?? "";
-      return `| ${round.index} | ${round.status} | ${round.pr_url || ""} | ${value} | ${entropy} |`;
+      const entropy = round.post_gate?.fused_entropy_delta ?? round.post_gate?.entropy_delta ?? round.pre_gate?.estimated_entropy_delta ?? "";
+      const reward = round.post_gate?.running_reward ?? "";
+      return `| ${round.index} | ${round.status} | ${round.pr_url || ""} | ${value} | ${entropy} | ${reward} |`;
     }),
     "",
     "Human eval target:",
