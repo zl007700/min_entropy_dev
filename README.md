@@ -38,16 +38,9 @@ the gates provide selection pressure. The loop tracks the value and engineering
 entropy introduced by accepted changes so that development can optimize the
 trajectory of the project, not merely the next patch.
 
-```mermaid
-flowchart LR
-    PM[Product] --> PG{Proposal gate}
-    PG --> DEV[Dev]
-    DEV --> PR[Pull request]
-    PR --> RG{Value / entropy gate}
-    RG --> TEST[Test]
-    TEST --> MERGE[Merge]
-    MERGE --> PM
-```
+<p align="center">
+  <img src="assets/development-loop.svg" width="100%" alt="Product proposal, gated development, testing, merge, and repeat loop">
+</p>
 
 ## Why Min Entropy Dev?
 

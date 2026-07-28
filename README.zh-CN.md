@@ -36,16 +36,9 @@ Dev、Rubric 和 Tester Agent 围绕 Pull Request 循环协作；每个候选变
 提供选择压力。循环持续追踪被接受变更带来的价值和工程熵，从而优化项目的长期
 演化轨迹，而不只是眼前的一个 Patch。
 
-```mermaid
-flowchart LR
-    PM[Product] --> PG{Proposal Gate}
-    PG --> DEV[Dev]
-    DEV --> PR[Pull Request]
-    PR --> RG{Value / Entropy Gate}
-    RG --> TEST[Test]
-    TEST --> MERGE[Merge]
-    MERGE --> PM
-```
+<p align="center">
+  <img src="assets/development-loop.svg" width="100%" alt="产品提案、门禁、开发、测试、Merge 与下一轮循环">
+</p>
 
 ## 为什么需要 Min Entropy Dev？
 
