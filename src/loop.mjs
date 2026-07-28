@@ -22,7 +22,7 @@ function state() {
     run_id: config.runId,
     repo: config.repo,
     base_branch: config.baseBranch,
-    experiment_branch: `exp/${config.runId}`,
+    experiment_branch: `test_${config.runId}`,
     target_rounds: config.smoke ? 1 : config.rounds,
     rounds: [],
   });
@@ -187,6 +187,7 @@ async function runRound(index, current) {
     gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, "post_gate.json")], {
       cwd: repoWorkspace,
     });
+    closeFailedPr(prUrl);
     return finishRound(current, dir, {
       ...record,
       status: "post_gate_failed",
@@ -204,6 +205,7 @@ async function runRound(index, current) {
     gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, "tester_report.json")], {
       cwd: repoWorkspace,
     });
+    closeFailedPr(prUrl);
     return finishRound(current, dir, {
       ...record,
       status: "tester_failed",
@@ -232,6 +234,13 @@ async function runRound(index, current) {
     post_gate: postGate,
     tester,
     completed_at: new Date().toISOString(),
+  });
+}
+
+function closeFailedPr(prUrl) {
+  gh(["pr", "close", prUrl, "--repo", config.repo, "--delete-branch"], {
+    cwd: repoWorkspace,
+    timeout: 120000,
   });
 }
 
