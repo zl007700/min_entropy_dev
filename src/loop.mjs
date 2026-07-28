@@ -813,6 +813,14 @@ async function main() {
   let current = state();
   ensureExperimentBranch(current);
   saveState(current);
+  const resumed = await resumeOpenEvaluation(current);
+  if (resumed) {
+    current = resumed;
+    if (config.once) {
+      writeReport(current);
+      return;
+    }
+  }
   for (let i = current.rounds.length + 1; i <= current.target_rounds; i += 1) {
     console.log(`Starting round ${i}/${current.target_rounds}`);
     current = await runRound(i, current);
@@ -824,6 +832,51 @@ async function main() {
     if (config.once) break;
   }
   writeReport(current);
+}
+
+async function resumeOpenEvaluation(current) {
+  const record = current.rounds.at(-1);
+  if (!record?.pr_url || !["post_gate_failed_to_evaluate", "tester_failed_to_evaluate"].includes(record.status)) {
+    return null;
+  }
+  console.log(`Resuming ${record.status} for round ${record.index}: ${record.pr_url}`);
+  heartbeat(join(runDir, "iterations", String(record.index).padStart(3, "0")), "resume_open_evaluation", {
+    status: record.status,
+    pr_url: record.pr_url,
+  });
+  git(["fetch", "origin", record.branch], { cwd: repoWorkspace });
+  git(["checkout", record.branch], { cwd: repoWorkspace });
+  git(["pull", "--ff-only", "origin", record.branch], { cwd: repoWorkspace });
+  const dir = join(runDir, "iterations", String(record.index).padStart(3, "0"));
+  const gateResult = await evaluateAndRevise({
+    current,
+    dir,
+    record,
+    proposal: record.proposal,
+    preGate: record.pre_gate,
+    dev: record.dev,
+    prUrl: record.pr_url,
+    branch: record.branch,
+  });
+  if (gateResult.status !== "pass") {
+    if (!gateResult.keepOpen) closeFailedPr(record.pr_url);
+    return finishRound(current, dir, gateResult.record);
+  }
+  gh(["pr", "merge", record.pr_url, "--repo", config.repo, "--squash", "--delete-branch"], {
+    cwd: repoWorkspace,
+    timeout: 120000,
+  });
+  git(["checkout", current.experiment_branch], { cwd: repoWorkspace });
+  git(["pull", "--ff-only", "origin", current.experiment_branch], { cwd: repoWorkspace });
+  return finishRound(current, dir, {
+    ...record,
+    status: "merged",
+    post_gate: gateResult.postGate,
+    tester: gateResult.tester,
+    revisions: gateResult.revisions,
+    completed_at: new Date().toISOString(),
+    error: undefined,
+  });
 }
 
 function shouldPauseAfter(round) {
