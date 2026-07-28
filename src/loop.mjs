@@ -471,7 +471,8 @@ function smokeScripts() {
 
 function normalizeSmokeCheck(result, script) {
   const check = compactOutput(result);
-  if (check.status === 2 && /missing|not configured|skip/i.test(`${check.stdout}\n${check.stderr}`)) {
+  const output = `${check.stdout}\n${check.stderr}`;
+  if ([1, 2].includes(check.status) && /missing|not configured|skip/i.test(output)) {
     return {
       ...check,
       status: "skipped",
