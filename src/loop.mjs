@@ -857,8 +857,8 @@ async function main() {
 }
 
 async function resumeOpenEvaluation(current) {
-  const record = current.rounds.at(-1);
-  if (!record?.pr_url || !["post_gate_failed_to_evaluate", "tester_failed_to_evaluate"].includes(record.status)) {
+  const record = resumableRecord(current);
+  if (!record) {
     return null;
   }
   console.log(`Resuming ${record.status} for round ${record.index}: ${record.pr_url}`);
@@ -874,9 +874,9 @@ async function resumeOpenEvaluation(current) {
     current,
     dir,
     record,
-    proposal: record.proposal,
-    preGate: record.pre_gate,
-    dev: record.dev,
+    proposal: record.proposal || readJson(join(dir, "proposal.json"), {}),
+    preGate: record.pre_gate || readJson(join(dir, "pre_gate.json"), {}),
+    dev: record.dev || latestDevArtifact(dir),
     prUrl: record.pr_url,
     branch: record.branch,
   });
@@ -899,6 +899,34 @@ async function resumeOpenEvaluation(current) {
     completed_at: new Date().toISOString(),
     error: undefined,
   });
+}
+
+function resumableRecord(current) {
+  const last = current.rounds.at(-1);
+  if (last?.pr_url && ["post_gate_failed_to_evaluate", "tester_failed_to_evaluate"].includes(last.status)) {
+    return last;
+  }
+  const nextIndex = current.rounds.length + 1;
+  const dir = join(runDir, "iterations", String(nextIndex).padStart(3, "0"));
+  const partial = readJson(join(dir, "record.json"), null);
+  const prUrl = existsSync(join(dir, "pr_url.txt")) ? readText(join(dir, "pr_url.txt")).trim() : "";
+  if (!partial || !prUrl || partial.status !== "started") return null;
+  return {
+    ...partial,
+    status: "unfinished_open_pr",
+    proposal: readJson(join(dir, "proposal.json"), {}),
+    pre_gate: readJson(join(dir, "pre_gate.json"), {}),
+    dev: latestDevArtifact(dir),
+    pr_url: prUrl,
+  };
+}
+
+function latestDevArtifact(dir) {
+  for (let attempt = config.reviseAttempts; attempt >= 1; attempt -= 1) {
+    const candidate = join(dir, `dev.revision-${attempt}.json`);
+    if (existsSync(candidate)) return readJson(candidate, {});
+  }
+  return readJson(join(dir, "dev.json"), {});
 }
 
 function shouldPauseAfter(round) {
