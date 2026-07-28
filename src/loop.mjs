@@ -746,6 +746,10 @@ function productMemoryFor(rounds, merged) {
   }));
   const lowValueStreak = [...merged].reverse().findIndex((round) => valueFor(round) > 1);
   const normalizedLowValueStreak = lowValueStreak === -1 ? merged.length : lowValueStreak;
+  const lowRewardStreak = [...merged].reverse().findIndex((round) => rewardFor(round) >= 0.1);
+  const normalizedLowRewardStreak = lowRewardStreak === -1 ? merged.length : lowRewardStreak;
+  const highEntropyStreak = [...merged].reverse().findIndex((round) => entropyFor(round) <= 20);
+  const normalizedHighEntropyStreak = highEntropyStreak === -1 ? merged.length : highEntropyStreak;
   const categoryCounts = recentMerged.reduce((counts, item) => {
     counts[item.growth_category] = (counts[item.growth_category] || 0) + 1;
     return counts;
@@ -763,16 +767,30 @@ function productMemoryFor(rounds, merged) {
         reason: round.post_gate?.reason || round.pre_gate?.reason || round.tester?.reason || round.error || "",
       })),
     low_value_streak: normalizedLowValueStreak,
+    low_reward_streak: normalizedLowRewardStreak,
+    high_entropy_streak: normalizedHighEntropyStreak,
     category_counts: categoryCounts,
     dominant_category: dominantCategory,
-    roadmap_pressure: roadmapPressure({ lowValueStreak: normalizedLowValueStreak, dominantCategory, categoryCounts }),
+    roadmap_pressure: roadmapPressure({
+      lowValueStreak: normalizedLowValueStreak,
+      lowRewardStreak: normalizedLowRewardStreak,
+      highEntropyStreak: normalizedHighEntropyStreak,
+      dominantCategory,
+      categoryCounts,
+    }),
   };
 }
 
-function roadmapPressure({ lowValueStreak, dominantCategory, categoryCounts }) {
+function roadmapPressure({ lowValueStreak, lowRewardStreak, highEntropyStreak, dominantCategory, categoryCounts }) {
   const notes = [];
   if (lowValueStreak > 0) {
     notes.push(`Recent merged work has ${lowValueStreak} low-value round(s); raise the bar for the next proposal.`);
+  }
+  if (lowRewardStreak > 0) {
+    notes.push(`Recent merged work has ${lowRewardStreak} low-reward round(s); prefer lower entropy before adding surface.`);
+  }
+  if (highEntropyStreak > 0) {
+    notes.push(`Recent merged work has ${highEntropyStreak} high-entropy round(s); avoid broad stateful features.`);
   }
   if (dominantCategory && categoryCounts[dominantCategory] >= 4) {
     notes.push(`Recent work is concentrated in ${dominantCategory}; prefer a different growth category unless evidence is strong.`);
@@ -791,6 +809,10 @@ function entropyFor(round) {
   return Number(
     round.post_gate?.fused_entropy_delta ?? round.post_gate?.entropy_delta ?? round.pre_gate?.estimated_entropy_delta ?? 0,
   );
+}
+
+function rewardFor(round) {
+  return Number(round.post_gate?.running_reward ?? 0);
 }
 
 function categoryFor(round) {
@@ -909,6 +931,8 @@ function writeReport(current) {
     "Product memory:",
     "",
     `- Low value streak: ${memory.low_value_streak}`,
+    `- Low reward streak: ${memory.low_reward_streak}`,
+    `- High entropy streak: ${memory.high_entropy_streak}`,
     `- Dominant category: ${memory.dominant_category || "none"}`,
     `- Roadmap pressure: ${memory.roadmap_pressure.join(" ")}`,
     "",

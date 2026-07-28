@@ -14,6 +14,10 @@ Rubric:
   low_value_streak or one category dominates, require the proposal to prove
   novelty and product leverage. Revise or reject duplicate UI polish,
   near-parity controls, or another small convenience feature with weak leverage.
+- If product_memory shows low_reward_streak or high_entropy_streak, raise the
+  entropy bar. Do not pass another stateful feature unless it has clear value 3
+  leverage and narrow scope. Prefer proposals that simplify, consolidate,
+  harden tests, or reduce failure modes.
 
 Return only JSON:
 

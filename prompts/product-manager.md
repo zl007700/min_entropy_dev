@@ -26,6 +26,9 @@ Avoid product degeneration:
 - If low_value_streak is greater than 0, raise the bar: prefer core agent
   capability, reliability, observability, or workflow leverage over another
   cosmetic or parity UI control.
+- If low_reward_streak or high_entropy_streak is greater than 0, reduce state
+  surface and prefer consolidation, simplification, test hardening, or a small
+  reliability improvement over another stateful product surface.
 - If one growth category dominates recent work, choose a different category
   unless repository evidence shows an urgent gap in the dominant category.
 - Your novelty_check must cite the closest existing capability and explain why
