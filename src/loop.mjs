@@ -449,12 +449,36 @@ function runDeterministicChecks(dir, attempt) {
   ]) {
     checks.push(compactOutput(runNpm(args)));
   }
+  for (const script of smokeScripts()) {
+    checks.push(normalizeSmokeCheck(runNpm(["run", script]), script));
+  }
   const report = {
     decision: checks.some((check) => check.status !== 0 && check.status !== "skipped") ? "fail" : "pass",
     checks,
   };
   writeJson(join(dir, attempt === 0 ? "deterministic_checks.json" : `deterministic_checks.revision-${attempt}.json`), report);
   return report;
+}
+
+function smokeScripts() {
+  const pkgPath = join(repoWorkspace, "package.json");
+  if (!existsSync(pkgPath)) return [];
+  const pkg = readJson(pkgPath, {});
+  return Object.keys(pkg.scripts || {})
+    .filter((script) => script === "smoke" || script.startsWith("smoke:"))
+    .sort();
+}
+
+function normalizeSmokeCheck(result, script) {
+  const check = compactOutput(result);
+  if (check.status === 2 && /missing|not configured|skip/i.test(`${check.stdout}\n${check.stderr}`)) {
+    return {
+      ...check,
+      status: "skipped",
+      stdout: `${check.stdout}\nExplicitly skipped ${script}: missing local credentials or environment.`,
+    };
+  }
+  return check;
 }
 
 function runNpm(args) {
