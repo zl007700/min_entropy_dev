@@ -37,7 +37,7 @@ Dev、Rubric 和 Tester Agent 围绕 Pull Request 循环协作；每个候选变
 演化轨迹，而不只是眼前的一个 Patch。
 
 <p align="center">
-  <img src="assets/development-loop-dark.svg" width="100%" alt="产品提案、门禁、开发、测试、Merge 与下一轮循环">
+  <img src="assets/development-loop-readable.svg" width="100%" alt="产品提案、门禁、开发、测试、Merge 与下一轮循环">
 </p>
 
 ## 为什么需要 Min Entropy Dev？

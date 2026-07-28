@@ -39,7 +39,7 @@ entropy introduced by accepted changes so that development can optimize the
 trajectory of the project, not merely the next patch.
 
 <p align="center">
-  <img src="assets/development-loop-dark.svg" width="100%" alt="Product proposal, gated development, testing, merge, and repeat loop">
+  <img src="assets/development-loop-readable.svg" width="100%" alt="Product proposal, gated development, testing, merge, and repeat loop">
 </p>
 
 ## Why Min Entropy Dev?
