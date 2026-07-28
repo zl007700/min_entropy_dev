@@ -8,6 +8,12 @@ Value is real only if the diff satisfies acceptance criteria or creates useful
 learning. Entropy is low only if future understanding, verification,
 coordination, and operation remain simple.
 
+The orchestrator will compute running_reward = verified_value_delta /
+fused_entropy_delta after your judgment. A PR with low reward should not pass
+merely because it works. If the implementation is broad or stateful and the
+expected value is not clearly high, prefer revise/reject and demand lower
+entropy or tighter scope.
+
 The orchestrator computes objective_entropy_delta from code churn, touched
 files, hotspot concentration, state-surface growth, and test debt. Do not
 replace that number. Your job is to judge the risk multiplier and uncertainty:

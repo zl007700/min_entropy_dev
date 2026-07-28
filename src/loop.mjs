@@ -602,16 +602,27 @@ function normalizeReward(postGate, objectiveEntropy) {
   const agentMultiplier = clamp(numberOr(postGate?.agent_entropy_multiplier, 1), 0.7, 2);
   const uncertaintyMultiplier = clamp(numberOr(postGate?.uncertainty_multiplier, 1), 1, 1.5);
   const fusedEntropy = objective * agentMultiplier * uncertaintyMultiplier;
+  const runningReward = fusedEntropy === 0 ? null : round2(verifiedValue / fusedEntropy);
+  const rewardFloor = 0.1;
+  const belowRewardFloor = postGate?.decision === "pass" && runningReward !== null && runningReward < rewardFloor;
   return {
     ...postGate,
+    decision: belowRewardFloor ? "revise" : postGate?.decision,
     verified_value_delta: verifiedValue,
     objective_entropy_delta: round2(objective),
     agent_entropy_multiplier: round2(agentMultiplier),
     uncertainty_multiplier: round2(uncertaintyMultiplier),
     fused_entropy_delta: round2(fusedEntropy),
-    running_reward: fusedEntropy === 0 ? null : round2(verifiedValue / fusedEntropy),
+    running_reward: runningReward,
+    reward_floor: rewardFloor,
     legacy_entropy_delta: postGate?.entropy_delta,
     entropy_delta: round2(fusedEntropy),
+    blocking_reasons: belowRewardFloor
+      ? [
+          ...(Array.isArray(postGate?.blocking_reasons) ? postGate.blocking_reasons : []),
+          `Running reward ${runningReward} is below floor ${rewardFloor}; reduce entropy or narrow scope before merge.`,
+        ]
+      : postGate?.blocking_reasons,
   };
 }
 
