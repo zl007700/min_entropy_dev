@@ -55,10 +55,10 @@ export async function runClaudeAgent({
   const script =
     process.platform === "win32"
       ? noTool
-        ? `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text --tools '' --disallowedTools '${disallowed}'`
+        ? `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text --disallowedTools '${disallowed}'`
         : `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format stream-json --verbose --tools '${toolsFor(kind)}' --allowedTools '${toolsFor(kind)}'`
       : noTool
-        ? `cat '${promptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text --tools '' --disallowedTools '${disallowed}'`
+        ? `cat '${promptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text --disallowedTools '${disallowed}'`
         : `claude -p "$(cat '${promptPath.replace(/'/g, "'\\''")}')" --output-format stream-json --verbose --tools '${toolsFor(kind)}' --allowedTools '${toolsFor(kind)}'`;
   const args = process.platform === "win32" ? ["-NoProfile", "-Command", script] : ["-lc", script];
   const result = await runStreaming(command, args, {
@@ -117,8 +117,8 @@ async function repairJson({ kind, text, artifactDir }) {
   const command = process.platform === "win32" ? "powershell.exe" : "bash";
   const script =
     process.platform === "win32"
-      ? `Get-Content -LiteralPath '${repairPromptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text --tools ''`
-      : `cat '${repairPromptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text --tools ''`;
+      ? `Get-Content -LiteralPath '${repairPromptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text`
+      : `cat '${repairPromptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text`;
   const args = process.platform === "win32" ? ["-NoProfile", "-Command", script] : ["-lc", script];
   const result = await runStreaming(command, args, { cwd: artifactDir });
   writeText(join(artifactDir, `${kind}.json-repair.final.txt`), result.stdout || result.stderr || "");
