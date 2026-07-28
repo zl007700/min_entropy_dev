@@ -1,44 +1,105 @@
-# Min Entropy Dev
+<p align="center">
+  <img src="assets/min-entropy-dev-logo.png" width="160" alt="Min Entropy Dev logo">
+</p>
 
-Orchestrates a low-entropy development experiment against
-`git@github.com:zl007700/valuable_agent.git`.
+<h1 align="center">Min Entropy Dev</h1>
 
-The target repository's `main` branch is treated as a frozen baseline. Each run
-creates a `test_<run_id>` branch from `main`, then merges iteration PRs into
-that test branch only. After the configured number of rounds, a human compares
-`main` with the test branch.
+<p align="center">
+  <strong>Make repositories evolve, not merely grow.</strong><br>
+  AI made code cheap. Value is still scarce.
+</p>
 
-## Local Run
+<p align="center">
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-```powershell
-cp ..\.env .env
-npm install
-npm run smoke
-npm run loop -- --rounds 10
-npm run loop -- --run-id sdk-10r-002 --rounds 10 --once
+> [!IMPORTANT]
+> Min Entropy Dev is an early research prototype. The current reference path
+> uses GitHub, Claude Code, and a Node.js/React target repository.
+
+## What's Min Entropy Dev?
+
+Min Entropy Dev is a multi-agent development orchestrator for autonomous
+repository evolution. Product, development, rubric, and testing agents work
+through a pull request loop in which every candidate change is proposed,
+implemented, evaluated, and verified before it can be merged.
+
+The repository is the optimization target. Each PR is a candidate mutation;
+the gates provide selection pressure. The loop tracks the value and engineering
+entropy introduced by accepted changes so that development can optimize the
+trajectory of the project, not merely the next patch.
+
+```text
+Product proposal -> Proposal gate -> Dev -> PR -> Value/entropy gate -> Test -> Merge -> Repeat
 ```
 
-Artifacts are written to `runs/<run_id>/`.
+## Why Min Entropy Dev?
 
-Use `--once` for checkpointed experiments. It runs only the next missing round,
-writes artifacts and the report, then stops so a human can inspect the round
-before continuing.
+Coding agents dramatically increase the rate at which code can be produced.
+But generating more code does not guarantee that a project becomes more
+valuable. If feature completion is the only merge criterion, code can
+accumulate faster than product value, reducing value density and making every
+future change harder to understand, verify, and operate.
 
-Use `--revise-attempts <n>` to control how many times a PR can return to the Dev
-Agent after a post-gate or tester `revise` result. The default is 2.
+Min Entropy Dev explores whether explicit value and entropy gates can make
+autonomous software development compound in a healthier direction: toward
+higher verified value with controlled engineering cost.
 
-## Orchestrator Boundary
+## How to Use
 
-The orchestrator coordinates the loop, creates branches and PRs, records
-artifacts, and enforces gate outcomes. It must not substitute for an agent:
+### Prerequisites
 
-- Product proposals must come from the Product Manager Agent.
-- Code changes and commits must come from the Dev Agent.
-- Rubric decisions must come from the Rubric Agent.
-- Test decisions must come from the Tester Agent.
+- Git and the GitHub CLI (`gh`), authenticated for a dedicated test repository.
+- A recent Node.js runtime.
+- Claude Code installed and authenticated.
+- A Serper API key if the Product Manager should use web search.
 
-If an agent fails to produce a valid result, the round is recorded as failed
-rather than repaired by orchestration fallback logic.
+> [!WARNING]
+> Development agents can execute shell commands and modify the target
+> repository. Use an isolated workspace, branch protection, and least-privilege
+> credentials. Do not point this prototype at a production repository without
+> reviewing its permissions and checks.
 
-Evaluator infrastructure failures (`*_failed_to_evaluate`) pause the loop and
-leave the PR open for inspection instead of silently continuing.
+```powershell
+git clone https://github.com/zl007700/min_entropy_dev.git
+cd min_entropy_dev
+npm install
+Copy-Item .env.example .env
+# Configure the target repository and credentials in .env
+npm run smoke
+```
+
+Run one checkpointed iteration:
+
+```powershell
+npm run loop -- --run-id first-experiment --rounds 10 --once
+```
+
+Run the same command again to advance one round. Artifacts are written to
+`runs/<run_id>/`; target checkouts are isolated under
+`workspaces/<run_id>/`.
+
+Generate the experiment dashboard:
+
+```powershell
+npm run dashboard -- first-experiment
+```
+
+## Documentation
+
+- [Architecture](docs/architecture.md): agent roles, gates, revisions, and
+  orchestration boundaries.
+- [Value and entropy model](docs/reward-model.md): running reward and the
+  fusion of engineering metrics with agent judgment.
+- [Experiment methodology](docs/experiment-methodology.md): baseline and test
+  branches, artifacts, and final human evaluation.
+
+The first public reference experiment will use **Valuable Agent**, a deliberately
+small React agent that evolves only through this loop.
+
+## Status
+
+The architecture, rubrics, entropy model, and public interface are still under
+active experimentation. Repository-agnostic adapters and broader language
+support are project directions, not completed capabilities.
