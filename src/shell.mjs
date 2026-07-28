@@ -54,6 +54,9 @@ export function runStreaming(command, args, options = {}) {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if (options.killOnFinish && child.pid) {
+        killProcessTree(child.pid);
+      }
       resolve(result);
     };
     const timer = options.timeout
@@ -71,6 +74,9 @@ export function runStreaming(command, args, options = {}) {
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
       if (options.onStdout) options.onStdout(chunk);
+      if (options.finishOnStdout?.(stdout, chunk)) {
+        finish({ status: 0, stdout, stderr, early: true });
+      }
     });
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
@@ -79,4 +85,20 @@ export function runStreaming(command, args, options = {}) {
     child.on("close", (code) => finish({ status: code ?? 1, stdout, stderr }));
     child.on("error", (error) => finish({ status: 1, stdout, stderr, error: String(error) }));
   });
+}
+
+export function killProcessTree(pid) {
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { encoding: "utf8" });
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // Best effort cleanup.
+    }
+  }
 }

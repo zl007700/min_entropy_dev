@@ -362,9 +362,12 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
       };
     }
     writeJson(join(dir, attempt === 0 ? "tester_report.json" : `tester_report.revision-${attempt}.json`), tester);
-    if (tester.decision === "pass") {
+    const testerGate = normalizeTesterGate(tester);
+    writeJson(join(dir, attempt === 0 ? "tester_gate.json" : `tester_gate.revision-${attempt}.json`), testerGate);
+    if (testerGate.decision === "pass") {
       return { status: "pass", postGate, tester, revisions };
     }
+    const testerFeedback = { ...tester, decision: "fail", gate_consistency: testerGate };
     if (attempt < config.reviseAttempts) {
       gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, attempt === 0 ? "tester_report.json" : `tester_report.revision-${attempt}.json`)], {
         cwd: repoWorkspace,
@@ -377,7 +380,7 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
         prUrl,
         branch,
         feedbackKind: "tester",
-        feedback: tester,
+        feedback: testerFeedback,
       });
       latestDev = revision.dev;
       revisions.push(revision);
@@ -393,11 +396,37 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
         dev: latestDev,
         pr_url: prUrl,
         post_gate: postGate,
-        tester,
+        tester: testerFeedback,
         revisions,
       },
     };
   }
+}
+
+function normalizeTesterGate(tester) {
+  const acceptanceResults = Array.isArray(tester?.acceptance_results) ? tester.acceptance_results : [];
+  const checks = Array.isArray(tester?.checks) ? tester.checks : [];
+  const issues = Array.isArray(tester?.issues) ? tester.issues.filter((issue) => String(issue || "").trim()) : [];
+  const failedAcceptance = acceptanceResults.filter((item) => item?.status === "fail");
+  const unclearAcceptance = acceptanceResults.filter((item) => item?.status === "unclear");
+  const failedChecks = checks.filter((item) => item?.status === "fail");
+  const pass =
+    tester?.decision === "pass" &&
+    failedAcceptance.length === 0 &&
+    unclearAcceptance.length === 0 &&
+    failedChecks.length === 0 &&
+    issues.length === 0;
+  return {
+    decision: pass ? "pass" : "fail",
+    original_decision: tester?.decision || "",
+    failed_acceptance_count: failedAcceptance.length,
+    unclear_acceptance_count: unclearAcceptance.length,
+    failed_check_count: failedChecks.length,
+    issue_count: issues.length,
+    reason: pass
+      ? "Tester result is internally consistent."
+      : "Tester result is not passable: top-level decision, acceptance results, checks, and issues must agree.",
+  };
 }
 
 function runDeterministicChecks(dir, attempt) {
@@ -474,6 +503,7 @@ function finishRound(current, dir, record) {
     updated_at: new Date().toISOString(),
   };
   saveState(next);
+  writeReport(next);
   return next;
 }
 

@@ -71,6 +71,8 @@ export async function runClaudeAgent({
       stderr += chunk;
       writeText(stderrPath, stderr);
     },
+    finishOnStdout: noTool ? null : hasResultEvent,
+    killOnFinish: !noTool,
   });
   const finalText = noTool ? stdout.trim() : extractFinalText(stdout);
   writeText(join(artifactDir, `${kind}.final.txt`), finalText || stdout);
@@ -87,6 +89,20 @@ export async function runClaudeAgent({
     }
     return repairJson({ kind, text: finalText || stdout, artifactDir });
   }
+}
+
+function hasResultEvent(stdout) {
+  const lines = String(stdout || "").split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    try {
+      return JSON.parse(line).type === "result";
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 async function repairJson({ kind, text, artifactDir }) {
