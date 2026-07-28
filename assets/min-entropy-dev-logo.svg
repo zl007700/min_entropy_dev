@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Min Entropy Dev</title>
+  <desc id="desc">Three candidate repository branches pass through a gate and continue as one selected path.</desc>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g stroke="#2563eb" stroke-width="13">
+      <circle cx="34" cy="52" r="13"/>
+      <path d="M47 52h31c12 0 20 5 28 14l17 20"/>
+      <circle cx="34" cy="128" r="13"/>
+      <path d="M47 128h76"/>
+      <circle cx="34" cy="204" r="13"/>
+      <path d="M47 204h31c12 0 20-5 28-14l17-20"/>
+    </g>
+    <rect x="117" y="75" width="34" height="106" rx="8" stroke="#94a3b8" stroke-width="13"/>
+    <g stroke="#16a34a" stroke-width="13">
+      <path d="M151 128h13c11 0 18-5 25-13l24-31"/>
+      <circle cx="222" cy="72" r="13"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 270" role="img" aria-labelledby="title desc">
+  <title id="title">Min Entropy Dev readable development loop</title>
+  <desc id="desc">A product proposal passes through proposal, value, entropy, and test gates before merging and beginning the next round.</desc>
+  <style>
+    text {
+      fill: #f0f6fc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 17px;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+    .node { fill: #161b22; stroke: #66707b; stroke-width: 1.5; }
+    .gate { fill: #172554; stroke: #58a6ff; stroke-width: 1.5; }
+    .path { fill: none; stroke: #58a6ff; stroke-width: 2; }
+    .return { fill: none; stroke: #3fb950; stroke-width: 2; }
+  </style>
+  <defs>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3fb950"/>
+    </marker>
+  </defs>
+
+  <rect x="1" y="1" width="698" height="268" rx="8" fill="#0d1117" stroke="#30363d"/>
+
+  <rect class="node" x="24" y="40" width="118" height="58" rx="6"/>
+  <text x="83" y="75" text-anchor="middle">Product</text>
+
+  <path class="path" d="M142 69H167" marker-end="url(#arrow-blue)"/>
+  <path class="gate" d="M225 24L283 69L225 114L167 69Z"/>
+  <text x="225" y="65" text-anchor="middle">Proposal</text>
+  <text x="225" y="86" text-anchor="middle">gate</text>
+
+  <path class="path" d="M283 69H310" marker-end="url(#arrow-blue)"/>
+  <rect class="node" x="311" y="40" width="88" height="58" rx="6"/>
+  <text x="355" y="75" text-anchor="middle">Dev</text>
+
+  <path class="path" d="M399 69H426" marker-end="url(#arrow-blue)"/>
+  <rect class="node" x="427" y="40" width="135" height="58" rx="6"/>
+  <text x="494.5" y="75" text-anchor="middle">Pull request</text>
+
+  <path class="path" d="M562 69H620V190H583" marker-end="url(#arrow-blue)"/>
+  <path class="gate" d="M500 135L582 190L500 245L418 190Z"/>
+  <text x="500" y="177" text-anchor="middle">Value / entropy</text>
+  <text x="500" y="200" text-anchor="middle">gate</text>
+
+  <path class="path" d="M418 190H390" marker-end="url(#arrow-blue)"/>
+  <rect class="node" x="301" y="161" width="88" height="58" rx="6"/>
+  <text x="345" y="196" text-anchor="middle">Test</text>
+
+  <path class="path" d="M301 190H273" marker-end="url(#arrow-blue)"/>
+  <rect class="node" x="154" y="161" width="118" height="58" rx="6"/>
+  <text x="213" y="196" text-anchor="middle">Merge</text>
+
+  <path class="return" d="M154 190H84C64 190 54 176 54 154V104" marker-end="url(#arrow-green)"/>
+</svg>
