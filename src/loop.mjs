@@ -106,7 +106,6 @@ async function runRound(index, current) {
       workspace: repoWorkspace,
       artifactDir: dir,
       context: { round: index, repo: repoSnapshot, product_state: productState },
-      maxTurns: 12,
     });
   } catch (error) {
     return finishRound(current, dir, {
@@ -126,7 +125,6 @@ async function runRound(index, current) {
       workspace: repoWorkspace,
       artifactDir: dir,
       context: { proposal, repo: repoSnapshot, startup_policy: "prefer low-value low-entropy increments" },
-      maxTurns: 8,
     });
   } catch (error) {
     return finishRound(current, dir, {
@@ -153,7 +151,6 @@ async function runRound(index, current) {
       workspace: repoWorkspace,
       artifactDir: dir,
       context: { proposal, pre_gate: preGate, branch, base_branch: current.experiment_branch },
-      maxTurns: 30,
     });
   } catch (error) {
     return finishRound(current, dir, {
@@ -278,7 +275,6 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
           revision_attempt: attempt,
           previous_revisions: revisions,
         },
-        maxTurns: 10,
       });
     } catch (error) {
       return {
@@ -347,7 +343,6 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
           pr_diff: prDiff.slice(0, 60000),
           deterministic_checks: deterministicChecks,
         },
-        maxTurns: 12,
       });
     } catch (error) {
       return {
@@ -453,7 +448,6 @@ async function runRevision({ dir, attempt, proposal, preGate, prUrl, branch, fee
       revision_attempt: attempt,
       revision_feedback: { kind: feedbackKind, feedback },
     },
-    maxTurns: 20,
   });
   writeJson(join(dir, `dev.revision-${attempt}.json`), dev);
   const head = git(["rev-parse", "HEAD"], { cwd: repoWorkspace }).stdout.trim();

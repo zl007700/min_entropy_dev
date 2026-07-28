@@ -27,7 +27,6 @@ export async function runClaudeAgent({
   artifactDir,
   context,
   expectJson = true,
-  maxTurns = 12,
 }) {
   const system = readText(promptFile);
   const task = [
@@ -56,11 +55,11 @@ export async function runClaudeAgent({
   const script =
     process.platform === "win32"
       ? noTool
-        ? `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text --max-turns ${maxTurns} --tools '' --disallowedTools '${disallowed}'`
-        : `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format stream-json --verbose --max-turns ${maxTurns} --tools '${toolsFor(kind)}' --allowedTools '${toolsFor(kind)}'`
+        ? `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text --tools '' --disallowedTools '${disallowed}'`
+        : `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format stream-json --verbose --tools '${toolsFor(kind)}' --allowedTools '${toolsFor(kind)}'`
       : noTool
-        ? `cat '${promptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text --max-turns ${maxTurns} --tools '' --disallowedTools '${disallowed}'`
-        : `claude -p "$(cat '${promptPath.replace(/'/g, "'\\''")}')" --output-format stream-json --verbose --max-turns ${maxTurns} --tools '${toolsFor(kind)}' --allowedTools '${toolsFor(kind)}'`;
+        ? `cat '${promptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text --tools '' --disallowedTools '${disallowed}'`
+        : `claude -p "$(cat '${promptPath.replace(/'/g, "'\\''")}')" --output-format stream-json --verbose --tools '${toolsFor(kind)}' --allowedTools '${toolsFor(kind)}'`;
   const args = process.platform === "win32" ? ["-NoProfile", "-Command", script] : ["-lc", script];
   const result = await runStreaming(command, args, {
     cwd: workspace,
@@ -72,7 +71,6 @@ export async function runClaudeAgent({
       stderr += chunk;
       writeText(stderrPath, stderr);
     },
-    timeout: Math.max(180000, maxTurns * 90000),
   });
   const finalText = noTool ? stdout.trim() : extractFinalText(stdout);
   writeText(join(artifactDir, `${kind}.final.txt`), finalText || stdout);
@@ -103,10 +101,10 @@ async function repairJson({ kind, text, artifactDir }) {
   const command = process.platform === "win32" ? "powershell.exe" : "bash";
   const script =
     process.platform === "win32"
-      ? `Get-Content -LiteralPath '${repairPromptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text --max-turns 3 --tools ''`
-      : `cat '${repairPromptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text --max-turns 3 --tools ''`;
+      ? `Get-Content -LiteralPath '${repairPromptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text --tools ''`
+      : `cat '${repairPromptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text --tools ''`;
   const args = process.platform === "win32" ? ["-NoProfile", "-Command", script] : ["-lc", script];
-  const result = await runStreaming(command, args, { cwd: artifactDir, timeout: 180000 });
+  const result = await runStreaming(command, args, { cwd: artifactDir });
   writeText(join(artifactDir, `${kind}.json-repair.final.txt`), result.stdout || result.stderr || "");
   if (result.status !== 0) {
     throw new Error(`${kind} JSON repair failed: ${result.stderr || result.error || "unknown error"}`);

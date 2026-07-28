@@ -30,7 +30,6 @@ const result = await runClaudeAgent({
     previous_rounds: [],
     smoke_note: "Verify the Product Manager can choose and run the web search tool itself.",
   },
-  maxTurns: 8,
 });
 
 writeJson(join(artifactDir, "pm_smoke.result.json"), result);
