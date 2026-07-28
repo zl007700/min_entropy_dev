@@ -1,9 +1,12 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { readJson, readText, tryParseJson, writeText } from "./io.mjs";
 import { runStreaming } from "./shell.mjs";
 
 function toolsFor(kind) {
+  if (kind === "product") {
+    return "Read,Glob,Grep,Bash";
+  }
   if (kind === "dev" || kind === "tester") {
     return "Read,Glob,Grep,Edit,Write,Bash";
   }
@@ -11,7 +14,7 @@ function toolsFor(kind) {
 }
 
 function isNoToolAgent(kind) {
-  return kind === "product" || kind === "pre_gate" || kind === "post_gate";
+  return kind === "pre_gate" || kind === "post_gate";
 }
 
 export async function runClaudeAgent({
@@ -33,6 +36,9 @@ export async function runClaudeAgent({
     `Workspace path: ${workspace}`,
     `Artifact path: ${artifactDir}`,
     "Use repository evidence. Write useful artifacts only inside the artifact path unless you are the Dev Agent implementing code.",
+    kind === "product"
+      ? `Web search tool: when external evidence would improve the proposal, run node "${resolve("src/search-cli.mjs")}" --artifact "${artifactDir}" "your search query". Search only for focused product evidence.`
+      : "",
   ].join("\n");
   const stdoutPath = join(artifactDir, `${kind}.stdout.jsonl`);
   const stderrPath = join(artifactDir, `${kind}.stderr.log`);

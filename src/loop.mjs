@@ -3,7 +3,6 @@ import { join, resolve } from "node:path";
 import { configFromEnv, loadEnv } from "./config.mjs";
 import { ensureDir, readJson, readText, writeJson, writeText } from "./io.mjs";
 import { runClaudeAgent } from "./claude.mjs";
-import { webSearch } from "./serper.mjs";
 import { gh, git, gitMaybe } from "./github.mjs";
 import { run } from "./shell.mjs";
 
@@ -86,9 +85,6 @@ async function runRound(index, current) {
   git(["checkout", current.experiment_branch], { cwd: repoWorkspace });
   git(["pull", "--ff-only", "origin", current.experiment_branch], { cwd: repoWorkspace });
 
-  const search = await webSearch("small high leverage improvements for simple AI chat app UX");
-  writeJson(join(dir, "web_search.json"), search);
-
   const repoSnapshot = repoContext();
   let proposal;
   try {
@@ -97,7 +93,7 @@ async function runRound(index, current) {
       promptFile: join(prompts, "product-manager.md"),
       workspace: repoWorkspace,
       artifactDir: dir,
-      context: { round: index, search, repo: repoSnapshot, previous_rounds: current.rounds.slice(-5) },
+      context: { round: index, repo: repoSnapshot, previous_rounds: current.rounds.slice(-5) },
       maxTurns: 12,
     });
   } catch (error) {
