@@ -531,7 +531,7 @@ function collectStateSurfaceDelta(baseRef, headRef, files) {
 function countStateSurface(text) {
   return {
     use_state: countMatches(text, /\buseState\s*\(/g),
-    use_effect: countMatches(text, /\buseEffect\s*\(/g),
+    use_effect: countMatches(text, /\buse(?:Layout)?Effect\s*\(/g),
     handlers: countMatches(text, /\b(?:const\s+handle[A-Z]\w*|function\s+handle[A-Z]\w*|on[A-Z]\w*\s*=)/g),
   };
 }
