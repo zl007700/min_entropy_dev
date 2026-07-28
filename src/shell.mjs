@@ -49,6 +49,23 @@ export function runStreaming(command, args, options = {}) {
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = options.timeout
+      ? setTimeout(() => {
+          if (process.platform === "win32" && child.pid) {
+            spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { encoding: "utf8" });
+          } else {
+            child.kill("SIGTERM");
+          }
+          finish({ status: 124, stdout, stderr, error: `Timed out after ${options.timeout}ms` });
+        }, options.timeout)
+      : null;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
@@ -59,7 +76,7 @@ export function runStreaming(command, args, options = {}) {
       stderr += chunk;
       if (options.onStderr) options.onStderr(chunk);
     });
-    child.on("close", (code) => resolve({ status: code ?? 1, stdout, stderr }));
-    child.on("error", (error) => resolve({ status: 1, stdout, stderr, error: String(error) }));
+    child.on("close", (code) => finish({ status: code ?? 1, stdout, stderr }));
+    child.on("error", (error) => finish({ status: 1, stdout, stderr, error: String(error) }));
   });
 }

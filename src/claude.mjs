@@ -56,11 +56,11 @@ export async function runClaudeAgent({
   const script =
     process.platform === "win32"
       ? noTool
-        ? `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text --max-turns ${maxTurns} --disallowedTools '${disallowed}'`
-        : `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format stream-json --verbose --max-turns ${maxTurns} --allowedTools '${toolsFor(kind)}'`
+        ? `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format text --max-turns ${maxTurns} --tools '' --disallowedTools '${disallowed}'`
+        : `Get-Content -LiteralPath '${promptPath.replace(/'/g, "''")}' -Raw | claude -p --output-format stream-json --verbose --max-turns ${maxTurns} --tools '${toolsFor(kind)}' --allowedTools '${toolsFor(kind)}'`
       : noTool
-        ? `cat '${promptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text --max-turns ${maxTurns} --disallowedTools '${disallowed}'`
-        : `claude -p "$(cat '${promptPath.replace(/'/g, "'\\''")}')" --output-format stream-json --verbose --max-turns ${maxTurns} --allowedTools '${toolsFor(kind)}'`;
+        ? `cat '${promptPath.replace(/'/g, "'\\''")}' | claude -p --output-format text --max-turns ${maxTurns} --tools '' --disallowedTools '${disallowed}'`
+        : `claude -p "$(cat '${promptPath.replace(/'/g, "'\\''")}')" --output-format stream-json --verbose --max-turns ${maxTurns} --tools '${toolsFor(kind)}' --allowedTools '${toolsFor(kind)}'`;
   const args = process.platform === "win32" ? ["-NoProfile", "-Command", script] : ["-lc", script];
   const result = await runStreaming(command, args, {
     cwd: workspace,
@@ -72,6 +72,7 @@ export async function runClaudeAgent({
       stderr += chunk;
       writeText(stderrPath, stderr);
     },
+    timeout: Math.max(180000, maxTurns * 90000),
   });
   const finalText = noTool ? stdout.trim() : extractFinalText(stdout);
   writeText(join(artifactDir, `${kind}.final.txt`), finalText || stdout);
