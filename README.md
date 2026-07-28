@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/min-entropy-dev-logo.png" width="160" alt="Min Entropy Dev logo">
+  <img src="assets/min-entropy-dev-logo.svg" width="160" alt="Min Entropy Dev logo">
 </p>
 
 <h1 align="center">Min Entropy Dev</h1>
@@ -10,7 +10,15 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/status-research_preview-f59e0b?style=flat-square" alt="Status: research preview">
+  <img src="https://img.shields.io/badge/workflow-PR_native-2563eb?style=flat-square" alt="PR-native workflow">
+  <img src="https://img.shields.io/badge/orchestration-multi_agent-16a34a?style=flat-square" alt="Multi-agent orchestration">
+</p>
+
+<p align="center">
   <a href="docs/README.md">Documentation</a> ·
+  <a href="docs/architecture.md">Architecture</a> ·
+  <a href="docs/reward-model.md">Reward model</a> ·
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
@@ -30,8 +38,15 @@ the gates provide selection pressure. The loop tracks the value and engineering
 entropy introduced by accepted changes so that development can optimize the
 trajectory of the project, not merely the next patch.
 
-```text
-Product proposal -> Proposal gate -> Dev -> PR -> Value/entropy gate -> Test -> Merge -> Repeat
+```mermaid
+flowchart LR
+    PM[Product] --> PG{Proposal gate}
+    PG --> DEV[Dev]
+    DEV --> PR[Pull request]
+    PR --> RG{Value / entropy gate}
+    RG --> TEST[Test]
+    TEST --> MERGE[Merge]
+    MERGE --> PM
 ```
 
 ## Why Min Entropy Dev?

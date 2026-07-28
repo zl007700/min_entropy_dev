@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/min-entropy-dev-logo.png" width="160" alt="Min Entropy Dev Logo">
+  <img src="assets/min-entropy-dev-logo.svg" width="160" alt="Min Entropy Dev Logo">
 </p>
 
 <h1 align="center">Min Entropy Dev</h1>
@@ -10,7 +10,15 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/status-research_preview-f59e0b?style=flat-square" alt="Status: research preview">
+  <img src="https://img.shields.io/badge/workflow-PR_native-2563eb?style=flat-square" alt="PR-native workflow">
+  <img src="https://img.shields.io/badge/orchestration-multi_agent-16a34a?style=flat-square" alt="Multi-agent orchestration">
+</p>
+
+<p align="center">
   <a href="docs/README.md">Documentation</a> ·
+  <a href="docs/architecture.md">Architecture</a> ·
+  <a href="docs/reward-model.md">Reward Model</a> ·
   <a href="README.md">English</a>
 </p>
 
@@ -28,8 +36,15 @@ Dev、Rubric 和 Tester Agent 围绕 Pull Request 循环协作；每个候选变
 提供选择压力。循环持续追踪被接受变更带来的价值和工程熵，从而优化项目的长期
 演化轨迹，而不只是眼前的一个 Patch。
 
-```text
-产品提案 -> 提案门禁 -> 开发 -> PR -> 价值/熵门禁 -> 测试 -> Merge -> 下一轮
+```mermaid
+flowchart LR
+    PM[Product] --> PG{Proposal Gate}
+    PG --> DEV[Dev]
+    DEV --> PR[Pull Request]
+    PR --> RG{Value / Entropy Gate}
+    RG --> TEST[Test]
+    TEST --> MERGE[Merge]
+    MERGE --> PM
 ```
 
 ## 为什么需要 Min Entropy Dev？
