@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { configFromEnv, loadEnv } from "./config.mjs";
 import { ensureDir, readJson, readText, writeJson, writeText } from "./io.mjs";
 import { runClaudeAgent } from "./claude.mjs";
-import { gh, git, gitMaybe } from "./github.mjs";
+import { gh, ghJson, git, gitMaybe } from "./github.mjs";
 import { run } from "./shell.mjs";
 
 const root = resolve(".");
@@ -877,10 +877,28 @@ async function resumeOpenEvaluation(current) {
     status: record.status,
     pr_url: record.pr_url,
   });
+  const pr = ghJson(["pr", "view", record.pr_url, "--repo", config.repo], {
+    fields: "state,mergedAt,mergeCommit,headRefName,baseRefName",
+    cwd: repoWorkspace,
+  });
+  const dir = join(runDir, "iterations", String(record.index).padStart(3, "0"));
+  if (pr.state === "MERGED") {
+    git(["checkout", current.experiment_branch], { cwd: repoWorkspace });
+    git(["pull", "--ff-only", "origin", current.experiment_branch], { cwd: repoWorkspace });
+    return finishRound(current, dir, {
+      ...record,
+      status: "merged",
+      dev: latestDevArtifact(dir),
+      post_gate: latestArtifact(dir, "post_gate"),
+      tester: latestArtifact(dir, "tester_report"),
+      revisions: latestRevisions(dir),
+      completed_at: pr.mergedAt || new Date().toISOString(),
+      error: undefined,
+    });
+  }
   git(["fetch", "origin", record.branch], { cwd: repoWorkspace });
   git(["checkout", record.branch], { cwd: repoWorkspace });
   git(["pull", "--ff-only", "origin", record.branch], { cwd: repoWorkspace });
-  const dir = join(runDir, "iterations", String(record.index).padStart(3, "0"));
   const gateResult = await evaluateAndRevise({
     current,
     dir,
@@ -938,6 +956,28 @@ function latestDevArtifact(dir) {
     if (existsSync(candidate)) return readJson(candidate, {});
   }
   return readJson(join(dir, "dev.json"), {});
+}
+
+function latestArtifact(dir, name) {
+  for (let attempt = config.reviseAttempts; attempt >= 1; attempt -= 1) {
+    const candidate = join(dir, `${name}.revision-${attempt}.json`);
+    if (existsSync(candidate)) return readJson(candidate, {});
+  }
+  return readJson(join(dir, `${name}.json`), {});
+}
+
+function latestRevisions(dir) {
+  const revisions = [];
+  for (let attempt = 1; attempt <= config.reviseAttempts; attempt += 1) {
+    const candidate = join(dir, `dev.revision-${attempt}.json`);
+    if (existsSync(candidate)) {
+      revisions.push({
+        attempt,
+        dev: readJson(candidate, {}),
+      });
+    }
+  }
+  return revisions;
 }
 
 function shouldPauseAfter(round) {
