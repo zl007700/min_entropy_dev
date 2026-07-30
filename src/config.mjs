@@ -25,6 +25,7 @@ export function configFromEnv(argv = process.argv.slice(2)) {
 
   const rounds = Number(getArg("rounds", process.env.ROUNDS || "10"));
   const reviseAttempts = Number(getArg("revise-attempts", process.env.REVISE_ATTEMPTS || "2"));
+  const runMode = getArg("run-mode", process.env.RUN_MODE || "low_entropy");
   return {
     repo: process.env.VALUABLE_REPO || "zl007700/valuable_agent",
     repoUrl: process.env.VALUABLE_REPO_URL || "git@github.com:zl007700/valuable_agent.git",
@@ -32,6 +33,7 @@ export function configFromEnv(argv = process.argv.slice(2)) {
     rounds: Number.isFinite(rounds) && rounds > 0 ? Math.floor(rounds) : 10,
     reviseAttempts:
       Number.isFinite(reviseAttempts) && reviseAttempts >= 0 ? Math.floor(reviseAttempts) : 2,
+    runMode,
     runId:
       getArg("run-id", process.env.RUN_ID || "") ||
       `run-${new Date().toISOString().replace(/[-:]/g, "").slice(0, 13)}`,

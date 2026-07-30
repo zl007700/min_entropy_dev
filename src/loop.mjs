@@ -15,11 +15,21 @@ const runDir = join(root, "runs", config.runId);
 const workspaceRoot = join(root, "workspaces", config.runId);
 const repoWorkspace = join(workspaceRoot, "valuable_agent");
 const statePath = join(runDir, "state.json");
+const experienceNorthStar =
+  "Valuable Agent should become an operations-person focused agent workspace: a non-engineer operator can understand what the agent can do, launch common operations tasks, monitor progress, recover from failures, and reuse outputs with minimal cognitive load. Prioritize extreme UE/UX clarity, workflow completion, information architecture, status visibility, and first-screen usefulness.";
+
+function promptPath(name) {
+  const modeSpecific = join(prompts, `${name}.${config.runMode}.md`);
+  if (existsSync(modeSpecific)) return modeSpecific;
+  return join(prompts, `${name}.md`);
+}
 
 function state() {
   return readJson(statePath, {
     run_id: config.runId,
     repo: config.repo,
+    run_mode: config.runMode,
+    north_star: config.runMode === "experience" ? experienceNorthStar : "",
     base_branch: config.baseBranch,
     experiment_branch: `test_${config.runId}`,
     target_rounds: config.smoke ? 1 : config.rounds,
@@ -105,7 +115,7 @@ async function runRound(index, current) {
       heartbeat(dir, "product_started", { attempt });
       proposal = await runClaudeAgent({
         kind: "product",
-        promptFile: join(prompts, "product-manager.md"),
+        promptFile: promptPath("product-manager"),
         workspace: repoWorkspace,
         artifactDir: dir,
         context: {
@@ -132,14 +142,17 @@ async function runRound(index, current) {
       heartbeat(dir, "pre_gate_started", { attempt });
       preGate = await runClaudeAgent({
         kind: "pre_gate",
-        promptFile: join(prompts, "rubric-pre.md"),
+        promptFile: promptPath("rubric-pre"),
         workspace: repoWorkspace,
         artifactDir: dir,
         context: {
           proposal,
           repo: repoSnapshot,
           product_state: productState,
-          startup_policy: "prefer low-value low-entropy increments",
+          startup_policy:
+            config.runMode === "experience"
+              ? "prefer high-leverage UE/UX improvements for operations users, with entropy paid down through simplification and deletion"
+              : "prefer low-value low-entropy increments",
         },
       });
     } catch (error) {
@@ -295,7 +308,7 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
       heartbeat(dir, "post_gate_started", { attempt });
       postGate = await runClaudeAgent({
         kind: "post_gate",
-        promptFile: join(prompts, "rubric-post.md"),
+        promptFile: promptPath("rubric-post"),
         workspace: repoWorkspace,
         artifactDir: dir,
         context: {
@@ -719,6 +732,8 @@ function productStateFor(current) {
   return {
     base_branch: current.base_branch,
     test_branch: current.experiment_branch,
+    run_mode: current.run_mode || config.runMode,
+    north_star: current.north_star || "",
     product_memory: productMemory,
     current_diff_stat: diffStat.stdout,
     merged_commits: mergedLog.stdout,
