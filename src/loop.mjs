@@ -117,7 +117,7 @@ async function runRound(index, current) {
   let proposal;
   let preGate;
   const productRevisions = [];
-  for (let attempt = 0; attempt <= config.reviseAttempts; attempt += 1) {
+  for (let attempt = 0; ; attempt += 1) {
     try {
       heartbeat(dir, "product_started", { attempt });
       proposal = await runClaudeAgent({
@@ -175,7 +175,7 @@ async function runRound(index, current) {
     writeJson(join(dir, attempt === 0 ? "pre_gate.json" : `pre_gate.revision-${attempt}.json`), preGate);
     if (preGate.decision === "pass") break;
     productRevisions.push({ attempt: attempt + 1, proposal, pre_gate: preGate });
-    if (preGate.decision !== "revise" || attempt === config.reviseAttempts) {
+    if (preGate.decision !== "revise" || !canReviseAfter(attempt)) {
       return finishRound(current, dir, {
         ...record,
         status: "pre_gate_rejected",
@@ -294,10 +294,14 @@ function closeFailedPr(prUrl) {
   });
 }
 
+function canReviseAfter(attempt) {
+  return config.reviseAttempts === null || attempt < config.reviseAttempts;
+}
+
 async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev, prUrl, branch }) {
   const revisions = [];
   let latestDev = dev;
-  for (let attempt = 0; attempt <= config.reviseAttempts; attempt += 1) {
+  for (let attempt = 0; ; attempt += 1) {
     const prDiff = gh(["pr", "diff", prUrl, "--repo", config.repo], {
       cwd: repoWorkspace,
       timeout: 120000,
@@ -348,7 +352,7 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
     postGate = normalizeReward(postGate, objectiveEntropy);
     writeJson(join(dir, attempt === 0 ? "post_gate.json" : `post_gate.revision-${attempt}.json`), postGate);
     if (postGate.decision !== "pass") {
-      if (attempt < config.reviseAttempts && postGate.decision === "revise") {
+      if (postGate.decision === "revise" && canReviseAfter(attempt)) {
         gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, attempt === 0 ? "post_gate.json" : `post_gate.revision-${attempt}.json`)], {
           cwd: repoWorkspace,
         });
@@ -422,7 +426,7 @@ async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev,
       return { status: "pass", postGate, tester, revisions };
     }
     const testerFeedback = { ...tester, decision: "fail", gate_consistency: testerGate };
-    if (attempt < config.reviseAttempts) {
+    if (canReviseAfter(attempt)) {
       gh(["pr", "comment", prUrl, "--repo", config.repo, "--body-file", join(dir, attempt === 0 ? "tester_report.json" : `tester_report.revision-${attempt}.json`)], {
         cwd: repoWorkspace,
       });
@@ -961,7 +965,15 @@ async function resumeOpenEvaluation(current) {
 
 function resumableRecord(current) {
   const last = current.rounds.at(-1);
-  if (last?.pr_url && ["post_gate_failed_to_evaluate", "tester_failed_to_evaluate"].includes(last.status)) {
+  if (
+    last?.pr_url &&
+    [
+      "post_gate_failed_to_evaluate",
+      "tester_failed_to_evaluate",
+      "post_gate_failed",
+      "tester_failed",
+    ].includes(last.status)
+  ) {
     return last;
   }
   const nextIndex = current.rounds.length + 1;
@@ -980,16 +992,20 @@ function resumableRecord(current) {
 }
 
 function latestDevArtifact(dir) {
-  for (let attempt = config.reviseAttempts; attempt >= 1; attempt -= 1) {
-    const candidate = join(dir, `dev.revision-${attempt}.json`);
-    if (existsSync(candidate)) return readJson(candidate, {});
-  }
+  const latest = latestRevisionFile(dir, "dev");
+  if (latest) return readJson(join(dir, latest.file), {});
   return readJson(join(dir, "dev.json"), {});
 }
 
 function latestArtifact(dir, name) {
+  const latest = latestRevisionFile(dir, name);
+  if (latest) return readJson(join(dir, latest.file), {});
+  return readJson(join(dir, `${name}.json`), {});
+}
+
+function latestRevisionFile(dir, name) {
   const prefix = `${name}.revision-`;
-  const latest = readdirSync(dir)
+  return readdirSync(dir)
     .map((file) => {
       if (!file.startsWith(prefix) || !file.endsWith(".json")) return null;
       const attempt = Number(file.slice(prefix.length, -".json".length));
@@ -997,22 +1013,19 @@ function latestArtifact(dir, name) {
     })
     .filter(Boolean)
     .sort((a, b) => b.attempt - a.attempt)[0];
-  if (latest) return readJson(join(dir, latest.file), {});
-  return readJson(join(dir, `${name}.json`), {});
 }
 
 function latestRevisions(dir) {
-  const revisions = [];
-  for (let attempt = 1; attempt <= config.reviseAttempts; attempt += 1) {
-    const candidate = join(dir, `dev.revision-${attempt}.json`);
-    if (existsSync(candidate)) {
-      revisions.push({
-        attempt,
-        dev: readJson(candidate, {}),
-      });
-    }
-  }
-  return revisions;
+  const prefix = "dev.revision-";
+  return readdirSync(dir)
+    .map((file) => {
+      if (!file.startsWith(prefix) || !file.endsWith(".json")) return null;
+      const attempt = Number(file.slice(prefix.length, -".json".length));
+      if (!Number.isFinite(attempt)) return null;
+      return { attempt, dev: readJson(join(dir, file), {}) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.attempt - b.attempt);
 }
 
 function shouldPauseAfter(round) {
