@@ -29,6 +29,10 @@ export async function runClaudeAgent({
   expectJson = true,
 }) {
   const system = readText(promptFile);
+  const artifactInstruction =
+    kind === "dev"
+      ? "Dev Agent may edit the repository and may write useful artifacts inside the artifact path."
+      : "Do not write files or artifacts. Use tools only to inspect evidence or run explicitly requested checks. Return the required JSON as your final answer.";
   const task = [
     system,
     "",
@@ -37,9 +41,10 @@ export async function runClaudeAgent({
     "",
     `Workspace path: ${workspace}`,
     `Artifact path: ${artifactDir}`,
-    "Use repository evidence. Write useful artifacts only inside the artifact path unless you are the Dev Agent implementing code.",
+    "Use repository evidence.",
+    artifactInstruction,
     kind === "product"
-      ? `Web search tool: when external evidence would improve the proposal, run node "${resolve("src/search-cli.mjs")}" --artifact "${artifactDir}" "your search query". Search only for focused product evidence.`
+      ? `Web search tool: when external evidence would improve the proposal, run node "${resolve("src/search-cli.mjs")}" --artifact "${artifactDir}" "your search query". Search only for focused product evidence. Do not use Bash for file creation.`
       : "",
   ].join("\n");
   const stdoutPath = join(artifactDir, `${kind}.stdout.jsonl`);
@@ -134,10 +139,6 @@ async function repairJson({ kind, text, artifactDir }) {
 
 function fallbackJsonPath(kind, artifactDir) {
   const names = {
-    product: "product.proposal.json",
-    pre_gate: "pre_gate.result.json",
-    post_gate: "post_gate.result.json",
-    tester: "tester.report.json",
     dev: "dev.summary.json",
   };
   return names[kind] ? join(artifactDir, names[kind]) : null;

@@ -133,6 +133,7 @@ async function runRound(index, current) {
           pre_gate_feedback: attempt > 0 ? preGate : undefined,
         },
       });
+      assertProductProposal(proposal);
     } catch (error) {
       return finishRound(current, dir, {
         ...record,
@@ -285,6 +286,28 @@ async function runRound(index, current) {
     revisions: gateResult.revisions,
     completed_at: new Date().toISOString(),
   });
+}
+
+function assertProductProposal(proposal) {
+  const required = [
+    "title",
+    "growth_category",
+    "user_value",
+    "novelty_check",
+    "acceptance_criteria",
+    "non_goals",
+    "suggested_files",
+    "risk_notes",
+    "value_hypothesis",
+  ];
+  const missing = required.filter((key) => {
+    const value = proposal?.[key];
+    if (Array.isArray(value)) return value.length === 0;
+    return typeof value !== "string" || value.trim().length === 0;
+  });
+  if (missing.length > 0) {
+    throw new Error(`product proposal missing required fields: ${missing.join(", ")}`);
+  }
 }
 
 function closeFailedPr(prUrl) {
