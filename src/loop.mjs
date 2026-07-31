@@ -91,6 +91,13 @@ function ensureExperimentBranch(current) {
 async function runRound(index, current) {
   const dir = roundDir(index);
   ensureDir(dir);
+  const existingRecordPath = join(dir, "record.json");
+  const existingRecord = readJson(existingRecordPath, null);
+  if (existingRecord) {
+    throw new Error(
+      `Refusing to overwrite existing iteration ${index} record at ${existingRecordPath}; repair state or resume the existing round first.`,
+    );
+  }
   const branch = `iter/${config.runId}-${String(index).padStart(3, "0")}`;
   const record = {
     index,
