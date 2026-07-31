@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { configFromEnv, loadEnv } from "./config.mjs";
 import { ensureDir, readJson, readText, writeJson, writeText } from "./io.mjs";
@@ -617,10 +617,12 @@ function normalizeReward(postGate, objectiveEntropy) {
   const fusedEntropy = objective * agentMultiplier * uncertaintyMultiplier;
   const runningReward = fusedEntropy === 0 ? null : round2(verifiedValue / fusedEntropy);
   const rewardFloor = 0.1;
+  const zeroEntropyPass = postGate?.decision === "pass" && fusedEntropy === 0;
   const belowRewardFloor = postGate?.decision === "pass" && runningReward !== null && runningReward < rewardFloor;
+  const shouldRevise = zeroEntropyPass || belowRewardFloor;
   return {
     ...postGate,
-    decision: belowRewardFloor ? "revise" : postGate?.decision,
+    decision: shouldRevise ? "revise" : postGate?.decision,
     verified_value_delta: verifiedValue,
     objective_entropy_delta: round2(objective),
     agent_entropy_multiplier: round2(agentMultiplier),
@@ -630,10 +632,15 @@ function normalizeReward(postGate, objectiveEntropy) {
     reward_floor: rewardFloor,
     legacy_entropy_delta: postGate?.entropy_delta,
     entropy_delta: round2(fusedEntropy),
-    blocking_reasons: belowRewardFloor
+    blocking_reasons: shouldRevise
       ? [
           ...(Array.isArray(postGate?.blocking_reasons) ? postGate.blocking_reasons : []),
-          `Running reward ${runningReward} is below floor ${rewardFloor}; reduce entropy or narrow scope before merge.`,
+          ...(zeroEntropyPass
+            ? ["Objective entropy was 0 for a non-empty PR; rerun or fix entropy collection before merge."]
+            : []),
+          ...(belowRewardFloor
+            ? [`Running reward ${runningReward} is below floor ${rewardFloor}; reduce entropy or narrow scope before merge.`]
+            : []),
         ]
       : postGate?.blocking_reasons,
   };
@@ -974,10 +981,16 @@ function latestDevArtifact(dir) {
 }
 
 function latestArtifact(dir, name) {
-  for (let attempt = config.reviseAttempts; attempt >= 1; attempt -= 1) {
-    const candidate = join(dir, `${name}.revision-${attempt}.json`);
-    if (existsSync(candidate)) return readJson(candidate, {});
-  }
+  const prefix = `${name}.revision-`;
+  const latest = readdirSync(dir)
+    .map((file) => {
+      if (!file.startsWith(prefix) || !file.endsWith(".json")) return null;
+      const attempt = Number(file.slice(prefix.length, -".json".length));
+      return Number.isFinite(attempt) ? { attempt, file } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.attempt - a.attempt)[0];
+  if (latest) return readJson(join(dir, latest.file), {});
   return readJson(join(dir, `${name}.json`), {});
 }
 
