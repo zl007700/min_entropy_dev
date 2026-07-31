@@ -299,9 +299,10 @@ function canReviseAfter(attempt) {
 }
 
 async function evaluateAndRevise({ current, dir, record, proposal, preGate, dev, prUrl, branch }) {
-  const revisions = [];
+  const revisions = latestRevisions(dir);
   let latestDev = dev;
-  for (let attempt = 0; ; attempt += 1) {
+  const startAttempt = revisions.length > 0 ? Math.max(...revisions.map((revision) => revision.attempt)) : 0;
+  for (let attempt = startAttempt; ; attempt += 1) {
     const prDiff = gh(["pr", "diff", prUrl, "--repo", config.repo], {
       cwd: repoWorkspace,
       timeout: 120000,
